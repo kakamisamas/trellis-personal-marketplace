@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INDEX = ROOT / "index.json"
 WORKFLOW = ROOT / "workflows" / "solo-github-flow" / "workflow.md"
+CI = ROOT / ".github" / "workflows" / "ci.yml"
 NATIVE_0612_SHA256 = "e2c5ab7004ff83a5a804b50df81746aa1d558dd4480463287622605f86a82a76"
 
 
@@ -105,6 +106,10 @@ class MarketplaceContractTests(unittest.TestCase):
         digest = hashlib.sha256(WORKFLOW.read_bytes()).hexdigest()
         self.assertNotEqual(digest, NATIVE_0612_SHA256)
         self.assertGreater(len(self.workflow.splitlines()), 650)
+
+    def test_remote_smoke_pins_the_supported_trellis_package(self) -> None:
+        ci = CI.read_text(encoding="utf-8")
+        self.assertIn("@mindfoldhq/trellis@0.6.12", ci)
 
     def test_public_source_has_no_personal_project_paths(self) -> None:
         forbidden = (
