@@ -9,6 +9,7 @@
 3. **Persist everything** — research, decisions, and lessons all go to files; conversations get compacted, files don't
 4. **Incremental development** — one task at a time
 5. **Capture learnings** — after each task, review and write new knowledge back to spec
+6. **默认使用中文** — 与用户交流，以及编写 PRD、design、implement、research 等 AI 生成文档和进度汇报时，默认使用中文；代码、命令、标识符和配置键保留英文
 
 ---
 

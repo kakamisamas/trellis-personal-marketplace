@@ -63,6 +63,9 @@ class MarketplaceContractTests(unittest.TestCase):
 
     def test_reporting_and_finish_intent_are_explicit(self) -> None:
         required = (
+            "默认使用中文",
+            "AI 生成文档和进度汇报",
+            "代码、命令、标识符和配置键保留英文",
             "technical action",
             "plain-language function or result",
             "user-visible outcome",
