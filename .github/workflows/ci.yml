@@ -29,5 +29,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: npm install --global @mindfold-ai/trellis@0.6.12
+      - run: npm install --global @mindfoldhq/trellis@0.6.12
       - run: scripts/smoke-install.sh
