@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "templates": [
+    {
+      "id": "solo-github-flow",
+      "type": "workflow",
+      "name": "Solo GitHub Flow",
+      "description": "Native Trellis workflow with plain-language reporting and an automated GitHub finish flow",
+      "path": "workflows/solo-github-flow/workflow.md",
+      "tags": [
+        "workflow",
+        "github",
+        "solo-developer",
+        "ci",
+        "squash"
+      ]
+    }
+  ]
+}
