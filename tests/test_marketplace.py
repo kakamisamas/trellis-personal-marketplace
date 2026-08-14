@@ -82,11 +82,16 @@ class MarketplaceContractTests(unittest.TestCase):
 
     def test_terminal_pipeline_uses_real_github_commands(self) -> None:
         required = (
+            "git worktree add",
             "task.py set-branch",
             "task.py set-base-branch",
+            "task.py set-meta",
             "gh pr create",
             "gh pr checks --watch --fail-fast",
             "gh pr merge --squash --delete-branch --match-head-commit",
+            "git worktree remove",
+            "git worktree prune",
+            "git branch -D",
             "git status --porcelain --untracked-files=all",
             "trellis-finish-work",
         )
@@ -100,10 +105,50 @@ class MarketplaceContractTests(unittest.TestCase):
             "--no-verify",
             "force-push",
             "push origin main",
+            "git checkout -b",
         )
         for phrase in forbidden:
             with self.subTest(phrase=phrase):
                 self.assertNotIn(phrase, self.workflow)
+
+    def test_worktree_lifecycle_and_dispatch_order_are_explicit(self) -> None:
+        required = (
+            "the main worktree stays on the base branch",
+            'task/<MM-DD-slug>',
+            '../<repo>-wt/<MM-DD-slug>',
+            "Active task: <absolute task path>",
+            "Workdir: <absolute task worktree path>",
+            "only inside `Workdir`",
+            "Do not remove the task worktree during `after_archive`",
+            "lifecycle hook failures are non-blocking",
+        )
+        for phrase in required:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.workflow)
+
+        phase_one = self.workflow.index("#### 1.0 Create task")
+        phase_two = self.workflow.index("#### 2.1 Implement")
+        phase_three = self.workflow.index("#### 3.5 Wrap-up reminder")
+        worktree_add = self.workflow.index("git worktree add", phase_one, phase_two)
+        task_create = self.workflow.index("task.py create", worktree_add, phase_two)
+        merge = self.workflow.index("gh pr merge", phase_three)
+        worktree_remove = self.workflow.index("git worktree remove", merge)
+
+        self.assertLess(worktree_add, task_create)
+        self.assertLess(merge, worktree_remove)
+
+    def test_readme_explains_workflow_only_cleanup_boundary(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        required = (
+            "coordinating worktree",
+            "workflow-only marketplace template",
+            "not companion scripts or `.trellis/config.yaml`",
+            "Do not attach",
+            "after_archive",
+        )
+        for phrase in required:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, readme)
 
     def test_workflow_is_a_narrow_native_customization(self) -> None:
         digest = hashlib.sha256(WORKFLOW.read_bytes()).hexdigest()
