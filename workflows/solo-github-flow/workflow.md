@@ -7,7 +7,7 @@
 1. **Plan before code** — figure out what to do before you start
 2. **Specs injected, not remembered** — guidelines are injected via hook/skill, not recalled from memory
 3. **Persist everything** — research, decisions, and lessons all go to files; conversations get compacted, files don't
-4. **Incremental development** — one task at a time
+4. **Isolated development** — the main worktree stays on the base branch; every implementation task gets its own worktree
 5. **Capture learnings** — after each task, review and write new knowledge back to spec
 6. **默认使用中文** — 与用户交流，以及编写 PRD、design、implement、research 等 AI 生成文档和进度汇报时，默认使用中文；代码、命令、标识符和配置键保留英文
 
@@ -63,6 +63,7 @@ python3 ./.trellis/scripts/task.py validate <name>
 python3 ./.trellis/scripts/task.py set-branch <name> <branch>
 python3 ./.trellis/scripts/task.py set-base-branch <name> <branch>    # PR target
 python3 ./.trellis/scripts/task.py set-scope <name> <scope>
+python3 ./.trellis/scripts/task.py set-meta <name> worktree <absolute-path>
 
 # Hierarchy (parent/child)
 python3 ./.trellis/scripts/task.py add-subtask <parent> <child>
@@ -73,7 +74,7 @@ python3 ./.trellis/scripts/task.py remove-subtask <parent> <child>
 
 > Run `python3 ./.trellis/scripts/task.py --help` to see the authoritative, up-to-date list.
 
-**Current-task mechanism**: `task.py create` creates the task directory and (when session identity is available) auto-sets the per-session active-task pointer so the planning breadcrumb fires immediately. `task.py start` writes the same pointer (idempotent if already set) and flips `task.json.status` from `planning` to `in_progress`. State is stored under `.trellis/.runtime/sessions/`. If no context key is available from hook input, `TRELLIS_CONTEXT_ID`, or a platform-native session environment variable, there is no active task and `task.py start` fails with a session identity hint. `task.py finish` deletes the current session file (status unchanged). `task.py archive <task>` writes `status=completed`, moves the directory to `archive/`, and deletes any runtime session files that still point at the archived task.
+**Current-task mechanism**: `task.py create` creates the task directory and (when session identity is available) auto-sets the per-session active-task pointer inside that task's worktree. `task.py start` writes the same pointer (idempotent if already set) and flips `task.json.status` from `planning` to `in_progress`. State is stored under each worktree's `.trellis/.runtime/sessions/`. The coordinating session in the base worktree therefore keeps the absolute task and worktree paths returned by Phase 1.0 instead of expecting its local `task.py current` to discover a task stored in another worktree. If no context key is available from hook input, `TRELLIS_CONTEXT_ID`, or a platform-native session environment variable, `task.py start` still flips the status but reports degraded mode and does not persist a pointer; continue from the captured absolute paths. `task.py finish` deletes the current session file (status unchanged). `task.py archive <task>` writes `status=completed`, moves the directory to `archive/`, and deletes any runtime session files that still point at the archived task.
 
 ### Workspace System
 
@@ -173,16 +174,17 @@ Phase 3: Finish  → verify, update spec, report, then finish through GitHub aft
 
 ### Parent / Child Task Trees
 
-Use a parent task when one user request contains several independently verifiable deliverables. The parent task owns the source requirement set, the task map, cross-child acceptance criteria, and final integration review; it normally should not be the implementation target unless it also has direct work.
+Use a parent task when one user request contains several independently verifiable deliverables. The parent task owns the source requirement set, the task map, cross-child acceptance criteria, and final integration review; it normally should not be the implementation target unless it also has direct work. Keep coordination in the base worktree, but do not concurrently edit a tracked parent `task.json` from multiple child branches.
 
-Use child tasks for deliverables that can be planned, implemented, checked, and archived independently. Parent/child structure is not a dependency system: if one child must wait for another, write that ordering in the child `prd.md` / `implement.md` and keep each child's acceptance criteria testable.
+Use child tasks for deliverables that can be planned, implemented, checked, and archived independently. Every implementing child gets its own task worktree. Parent/child structure is not a dependency system: if one child must wait for another, write that ordering in the child `prd.md` / `implement.md` and keep each child's acceptance criteria testable. Reconcile the parent's child list once during integration; task files that live only on parallel child branches are not a shared scheduler.
 
-Create new children with `task.py create "<title>" --slug <name> --parent <parent-dir>`. Link existing tasks with `task.py add-subtask <parent> <child>`, and unlink mistakes with `task.py remove-subtask <parent> <child>`.
+When parent and child metadata are available in one integration worktree, create new children with `task.py create "<title>" --slug <name> --parent <parent-dir>`, link existing tasks with `task.py add-subtask <parent> <child>`, and unlink mistakes with `task.py remove-subtask <parent> <child>`. Parallel child worktrees record their parent and dependencies in artifacts until that integration step.
 
 <!-- Per-turn breadcrumb: shown when there is no active task (before Phase 1) -->
 
 [workflow-state:no_task]
 No active task. First classify the current turn and ask for task-creation consent before creating any Trellis task.
+Worktree coordinator exception: if this session already holds a verified absolute `Active task` and `Workdir` created in Phase 1.0, continue that task's planning from those paths; do not create a duplicate task merely because the base worktree has no local pointer yet.
 Simple conversation / small task: ask only whether this turn should create a Trellis task. If the user says no, skip Trellis for this session.
 Complex task: ask the user if you can create a Trellis task and enter the planning phase. If the user says no, explain, clarify scope, or suggest a smaller split.
 [/workflow-state:no_task]
@@ -201,7 +203,8 @@ Complex task: ask the user if you can create a Trellis task and enter the planni
 Load `trellis-brainstorm`; stay in planning.
 Lightweight: `prd.md` can be enough. Complex: finish `prd.md`, `design.md`, and `implement.md`; ask for review before `task.py start`.
 When presenting the plan, pair each technical action with the plain-language function or result it delivers.
-Multi-deliverable scope: consider a parent task plus independently verifiable child tasks; dependencies must be written in child artifacts, not implied by tree position.
+Keep all planning files and commands inside the task's recorded worktree. The base worktree coordinates by absolute task/worktree paths and stays on the base branch.
+Multi-deliverable scope: consider a parent task plus independently verifiable child worktrees; dependencies must be written in child artifacts, not implied by tree position.
 Sub-agent mode: curate `implement.jsonl` and `check.jsonl` as spec/research manifests before start.
 [/workflow-state:planning]
 
@@ -215,7 +218,8 @@ Sub-agent mode: curate `implement.jsonl` and `check.jsonl` as spec/research mani
 Load `trellis-brainstorm`; stay in planning.
 Lightweight: `prd.md` can be enough. Complex: finish `prd.md`, `design.md`, and `implement.md`; ask for review before `task.py start`.
 When presenting the plan, pair each technical action with the plain-language function or result it delivers.
-Multi-deliverable scope: consider a parent task plus independently verifiable child tasks; dependencies must be written in child artifacts, not implied by tree position.
+Keep all planning files and commands inside the task's recorded worktree. The base worktree coordinates by absolute task/worktree paths and stays on the base branch.
+Multi-deliverable scope: consider a parent task plus independently verifiable child worktrees; dependencies must be written in child artifacts, not implied by tree position.
 Inline mode: skip jsonl curation; Phase 2 reads artifacts/specs via `trellis-before-dev`.
 [/workflow-state:planning-inline]
 
@@ -230,13 +234,20 @@ Inline mode: skip jsonl curation; Phase 2 reads artifacts/specs via `trellis-bef
      therefore must cover every required step from implementation through
      commit, including Phase 3.3 spec update and Phase 3.4 commit. -->
 
-Sub-agent dispatch protocol applies to all platforms and all sub-agents, including native Codex `SubagentStart` context injection with child-side pull fallback, class-2 Gemini/Qoder/Copilot/Reasonix/Trae/Grok/Kimi Code, hook-backed ZCode/Snow, and `trellis-research`: every dispatch prompt starts with `Active task: <task path from task.py current>` before role-specific instructions. On Grok Build, use `spawn_subagent` with `subagent_type` set to the Trellis agent name (e.g. `trellis-implement`). On Kimi Code, dispatch the built-in `coder` / `explore` sub-agent with the matching `.kimi-code/skills/trellis-<role>/SKILL.md` instructions.
+Sub-agent dispatch protocol applies to all platforms and all sub-agents, including native Codex `SubagentStart` context injection with child-side pull fallback, class-2 Gemini/Qoder/Copilot/Reasonix/Trae/Grok/Kimi Code, hook-backed ZCode/Snow, and `trellis-research`: every dispatch prompt starts with these exact two lines before role-specific instructions:
+
+```text
+Active task: <absolute task path>
+Workdir: <absolute task worktree path>
+```
+
+The sub-agent may read and modify files and run commands only inside `Workdir`. It must resolve artifacts from the absolute `Active task` path and must not rely on the coordinating base worktree's `task.py current`. On Grok Build, use `spawn_subagent` with `subagent_type` set to the Trellis agent name (e.g. `trellis-implement`). On Kimi Code, dispatch the built-in `coder` / `explore` sub-agent with the matching `.kimi-code/skills/trellis-<role>/SKILL.md` instructions.
 
 [workflow-state:in_progress]
 Tools: `trellis-implement` / `trellis-research` are sub-agent types only (Task/Agent tool, NOT Skill; there is no skill by these names). `trellis-update-spec` is a skill. `trellis-check` exists as both; prefer the Agent form when verifying after code changes.
 Flow: `trellis-implement` -> `trellis-check` -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
-Main-session default: dispatch implement/check sub-agents. Sub-agent self-exemption: if already running as `trellis-implement`, do NOT spawn another `trellis-implement` or `trellis-check`; if already running as `trellis-check`, do NOT spawn another `trellis-check` or `trellis-implement`. Dispatch is main session only.
-Dispatch prompt starts with `Active task: <task path from task.py current>`. Read context: jsonl entries -> `prd.md` -> `design.md if present` -> `implement.md if present`.
+Main-session default: dispatch implement/check sub-agents into the task's recorded worktree. Sub-agent self-exemption: if already running as `trellis-implement`, do NOT spawn another `trellis-implement` or `trellis-check`; if already running as `trellis-check`, do NOT spawn another `trellis-check` or `trellis-implement`. Dispatch is main session only.
+Dispatch prompt starts with absolute `Active task:` and `Workdir:` lines. Only change files under `Workdir`. Read context: jsonl entries -> `prd.md` -> `design.md if present` -> `implement.md if present`.
 [/workflow-state:in_progress]
 
 <!-- Per-turn breadcrumb: shown while status='in_progress' when
@@ -247,6 +258,7 @@ Dispatch prompt starts with `Active task: <task path from task.py current>`. Rea
 [workflow-state:in_progress-inline]
 Flow: `trellis-before-dev` -> edit -> `trellis-check` -> validation -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
 Do not dispatch implement/check sub-agents in inline mode.
+Run all reads, edits, and commands inside the task's recorded worktree; keep the coordinating base worktree unchanged.
 Read context: `prd.md` -> `design.md if present` -> `implement.md if present`, plus relevant spec/research loaded by skills.
 [/workflow-state:in_progress-inline]
 
@@ -321,42 +333,64 @@ Goal: classify the request, get task-creation consent when a task is needed, and
 
 #### 1.0 Create task `[required · once]`
 
-Create the task directory and its Git branch only after task-creation consent.
+Create the task worktree, branch, and task directory only after task-creation consent. The coordinating worktree stays checked out on the base branch and is used only for planning, acceptance, merge, and cleanup.
 Before changing files:
 
 1. inspect the complete working tree and stop on changes that cannot be safely
    attributed to the user or the current task;
 2. discover the actual remote and default/base branch instead of assuming
    `origin` or `main`;
-3. fast-forward the local base from its upstream without rewriting history;
-4. create a project-compliant task branch, or reuse the current non-default
-   task branch/worktree when it already owns this task.
+3. require the base worktree to be clean and fast-forward its base branch from
+   upstream without rewriting history;
+4. derive one canonical task directory name `<MM-DD-slug>`, branch
+   `task/<MM-DD-slug>`, and sibling worktree path
+   `../<repo>-wt/<MM-DD-slug>`; repository branch rules may override only the
+   `task/` prefix;
+5. refuse branch/path collisions instead of reusing an unrelated worktree.
 
-Then create the task. The command sets status to `planning`, writes `task.json`, creates a default `prd.md`, and auto-targets the new task when session identity is available:
+Create the isolated worktree from the resolved base before creating the task:
 
 ```bash
-python3 ./.trellis/scripts/task.py create "<task title>" --slug <name>
+git worktree add "../<repo>-wt/<MM-DD-slug>" \
+  -b "task/<MM-DD-slug>" "<base>"
 ```
 
-Record the resolved branches in task metadata:
+Inside the new worktree, initialize the same developer identity because
+`.trellis/.developer` and `.trellis/.runtime/` are gitignored and worktree-local.
+Then create the task there. `--slug` receives only the slug body because
+`task.py create` adds the date prefix:
+
+```bash
+python3 ./.trellis/scripts/init_developer.py <developer-name>
+python3 ./.trellis/scripts/task.py create "<task title>" --slug <slug>
+```
+
+Capture the command's returned relative task path, convert both paths to
+absolute paths, and record the resolved branch, base, and worktree in task
+metadata from inside the task worktree:
 
 ```bash
 python3 ./.trellis/scripts/task.py set-branch <task-dir> <task-branch>
 python3 ./.trellis/scripts/task.py set-base-branch <task-dir> <base-branch>
+python3 ./.trellis/scripts/task.py set-meta <task-dir> worktree <absolute-worktree-path>
 ```
+
+Keep `<absolute-task-path>` and `<absolute-worktree-path>` in the coordinating
+session for every later dispatch and finish command. The base worktree's
+`task.py current` does not discover task files stored only in another worktree.
 
 Repository-specific `AGENTS.md`, hooks, naming rules, and worktree rules take
 priority. Never absorb unrelated dirty files into the new task.
 
 `--slug` is the human-readable name only. Do **not** include the `MM-DD-` date prefix; `task.py create` adds that prefix automatically.
 
-For task trees, create the parent task first and then create each child with `--parent <parent-dir>`. Do not start the parent just because children exist; start the child that owns the next independently verifiable deliverable.
+For task trees, use one worktree per implementing child. Create each child from the same reviewed base and write dependencies explicitly in its `prd.md` / `implement.md`. Do not let parallel child branches concurrently rewrite the parent's `task.json`; reconcile the child list once during integration. Do not start the parent just because children exist; start the child that owns the next independently verifiable deliverable.
 
-After this command succeeds, the per-turn breadcrumb auto-switches to `[workflow-state:planning]`, telling the AI to stay in planning.
+After this command succeeds, the task worktree's pointer resolves to `[workflow-state:planning]`. The coordinating base worktree continues through the `[workflow-state:no_task]` worktree-coordinator exception until Phase 1.4 creates its external pointer.
 
 Run only `create` here — do not also run `start`. `start` flips status to `in_progress`, which switches the breadcrumb to the implementation phase before planning artifacts are reviewed. Save `start` for step 1.4.
 
-Skip when `python3 ./.trellis/scripts/task.py current --source` already points to a task.
+Skip when the coordinating session already holds a verified absolute task path and worktree path for this task. Do not use the base worktree's `task.py current --source` as the cross-worktree test.
 
 #### 1.1 Requirement exploration `[required · repeatable]`
 
@@ -466,17 +500,23 @@ Skip this step. Context is loaded directly by the `trellis-before-dev` skill in 
 
 #### 1.4 Activate task `[required · once]`
 
-After artifact review, flip the task status to `in_progress`:
+After artifact review, run `task.py start` from the coordinating base worktree
+with the absolute task path. This writes the base session's pointer to the
+external task and flips its status to `in_progress` without switching the base
+branch:
 
 ```bash
-python3 ./.trellis/scripts/task.py start <task-dir>
+python3 ./.trellis/scripts/task.py start <absolute-task-path>
 ```
 
 For lightweight tasks, `prd.md` can be enough. For complex tasks, `prd.md`, `design.md`, and `implement.md` must exist and be reviewed before start. On sub-agent-dispatch platforms, `implement.jsonl` and `check.jsonl` must both have real curated entries before start. Runtime consumers tolerate missing or seed-only manifests for compatibility, but that tolerance is not a planning-ready state.
 
 After this command succeeds, the breadcrumb auto-switches to `[workflow-state:in_progress]`, and the rest of Phase 2 / 3 follows.
 
-If `task.py start` errors with a session-identity message (no context key from hook input, `TRELLIS_CONTEXT_ID`, or platform-native session env), follow the hint in the error to set up session identity, then retry.
+If `task.py start` reports degraded mode because no session identity is available,
+the status transition still succeeded but the pointer did not persist. Continue
+from the captured absolute paths; retry only after a stable context key becomes
+available.
 
 #### 1.5 Completion criteria
 
@@ -509,7 +549,7 @@ Spawn the implement sub-agent:
 
 - **Agent type**: `trellis-implement`
 - **Task description**: Implement the reviewed task artifacts, consulting materials under `{TASK_DIR}/research/`; finish by running project lint and type-check
-- **Dispatch prompt guard**: The prompt MUST start with `Active task: <task path>`, then tell the spawned agent it is already the `trellis-implement` sub-agent and must implement directly, not spawn another `trellis-implement` / `trellis-check`.
+- **Dispatch prompt guard**: The prompt MUST start with `Active task: <absolute task path>` and `Workdir: <absolute worktree path>` on separate lines, then tell the spawned agent it may operate only inside `Workdir`, is already the `trellis-implement` sub-agent, and must implement directly, not spawn another `trellis-implement` / `trellis-check`.
 
 The platform hook/plugin auto-handles:
 - Reads `implement.jsonl` and injects referenced spec/research files into the agent prompt
@@ -524,7 +564,7 @@ Spawn the implement sub-agent:
 
 - **Agent type**: `trellis-implement`
 - **Task description**: Implement the reviewed task artifacts, consulting materials under `{TASK_DIR}/research/`; finish by running project lint and type-check
-- **Dispatch prompt guard**: The prompt MUST start with `Active task: <task path>`, then explicitly say the spawned agent is already `trellis-implement` and must implement directly without spawning another `trellis-implement` / `trellis-check`.
+- **Dispatch prompt guard**: The prompt MUST start with `Active task: <absolute task path>` and `Workdir: <absolute worktree path>` on separate lines, then explicitly limit all operations to `Workdir` and say the spawned agent is already `trellis-implement` and must implement directly without spawning another `trellis-implement` / `trellis-check`.
 
 The pull-based sub-agent definition auto-handles the context load requirement:
 - Resolves the active task with `task.py current --source`, then reads `prd.md`, `design.md` if present, and `implement.md` if present
@@ -538,7 +578,7 @@ Spawn the implement sub-agent:
 
 - **Agent type**: `trellis-implement`
 - **Task description**: Implement the reviewed task artifacts, consulting materials under `{TASK_DIR}/research/`; finish by running project lint and type-check
-- **Dispatch prompt guard**: Tell the spawned agent it is already the `trellis-implement` sub-agent and must implement directly, not spawn another `trellis-implement` / `trellis-check`.
+- **Dispatch prompt guard**: Start with `Active task: <absolute task path>` and `Workdir: <absolute worktree path>` on separate lines; restrict all operations to `Workdir`; tell the spawned agent it is already the `trellis-implement` sub-agent and must implement directly, not spawn another `trellis-implement` / `trellis-check`.
 
 The platform prelude auto-handles the context load requirement:
 - Reads `implement.jsonl` and injects referenced spec/research files into the agent prompt
@@ -548,11 +588,12 @@ The platform prelude auto-handles the context load requirement:
 
 [codex-inline, Kilo, Antigravity, Devin]
 
-1. Load the `trellis-before-dev` skill to read project guidelines
-2. Read `{TASK_DIR}/prd.md`, then `design.md` if present, then `implement.md` if present
-3. Consult materials under `{TASK_DIR}/research/`
-4. Implement the code per reviewed artifacts
-5. Run project lint and type-check
+1. Change tool and command scope to the task's recorded worktree; do not modify the base worktree
+2. Load the `trellis-before-dev` skill to read project guidelines
+3. Read `{TASK_DIR}/prd.md`, then `design.md` if present, then `implement.md` if present
+4. Consult materials under `{TASK_DIR}/research/`
+5. Implement the code per reviewed artifacts
+6. Run project lint and type-check
 
 [/codex-inline, Kilo, Antigravity, Devin]
 
@@ -564,7 +605,7 @@ Spawn the check sub-agent:
 
 - **Agent type**: `trellis-check`
 - **Task description**: Review all code changes against specs and task artifacts; fix any findings directly; ensure lint and type-check pass
-- **Dispatch prompt guard**: The prompt MUST start with `Active task: <task path>`, then tell the spawned agent it is already the `trellis-check` sub-agent and must review/fix directly, not spawn another `trellis-check` / `trellis-implement`.
+- **Dispatch prompt guard**: The prompt MUST start with `Active task: <absolute task path>` and `Workdir: <absolute worktree path>` on separate lines, then tell the spawned agent it may operate only inside `Workdir`, is already the `trellis-check` sub-agent, and must review/fix directly, not spawn another `trellis-check` / `trellis-implement`.
 
 The check agent's job:
 - Review code changes against specs
@@ -576,7 +617,7 @@ The check agent's job:
 
 [codex-inline, Kilo, Antigravity, Devin]
 
-Load the `trellis-check` skill and verify the code per its guidance:
+From the task's recorded worktree, load the `trellis-check` skill and verify the code per its guidance:
 - Spec compliance
 - lint / type-check / tests
 - Cross-layer consistency (when changes span layers)
@@ -628,16 +669,21 @@ actions in steps 3.4 and 3.5. Requested implementation changes return to Phase 2
 
 After that authorization:
 
-1. capture the task path, task branch, base branch, remote, and current head SHA
-   before archival clears the active task pointer;
+1. capture the absolute task path, absolute task worktree path, coordinating
+   base worktree path, task branch, base branch, remote, and current head SHA
+   before archival clears the task worktree's active pointer;
 2. run `git status --porcelain --untracked-files=all`, classify every dirty path,
    and stop rather than commit unknown or user-owned files;
 3. learn the repository's commit style and group only current-task files into
    coherent Conventional Commits;
 4. stage explicit paths and commit the work, without amending or bypassing hooks;
-5. run the unchanged platform `trellis-finish-work` entry so task archival and
-   journal bookkeeping are committed after the work commits on the same branch;
-6. require a clean task branch before continuing.
+5. run the unchanged platform `trellis-finish-work` entry inside the task
+   worktree so task archival and journal bookkeeping are committed after the
+   work commits on the same branch;
+6. clear the coordinating base worktree's now-stale external task pointer with
+   `python3 ./.trellis/scripts/task.py finish` while retaining the captured
+   absolute paths in the session;
+7. require a clean task branch before continuing.
 
 Do not ask again before staging, committing, or invoking native finish-work.
 Stop only when safe automation is blocked, and explain the state and recovery
@@ -645,7 +691,9 @@ action in plain language.
 
 #### 3.5 Wrap-up reminder
 
-After step 3.4 succeeds, finish the authorized GitHub flow:
+After step 3.4 succeeds, finish the authorized GitHub flow from the coordinating
+base worktree. Do not remove the task worktree during `after_archive`: archive
+happens before push, PR checks, and merge; lifecycle hook failures are non-blocking.
 
 1. push the captured task branch to its actual remote;
 2. create or reuse its pull request with `gh pr create`, targeting the recorded
@@ -657,11 +705,16 @@ After step 3.4 succeeds, finish the authorized GitHub flow:
 5. when every repository gate is satisfied, run
    `gh pr merge --squash --delete-branch --match-head-commit <head-sha>` without
    bypassing branch protection or review policy;
-6. switch to the actual base branch and fast-forward it from its upstream;
-7. verify the merged remote task branch is absent, delete the local task branch,
-   and audit `git status --porcelain --untracked-files=all`, current branch, and
-   remote refs;
-8. report the merge, checks, cleanup, and any residual state in plain language.
+6. verify the coordinating worktree is still on the actual base branch and
+   fast-forward it from its upstream;
+7. verify the PR is merged and the remote task branch is absent, then require
+   the task worktree to be clean;
+8. from the base worktree run `git worktree remove <absolute-worktree-path>`,
+   delete the local task branch (a verified squash-merged branch may require
+   `git branch -D <task-branch>`), and run `git worktree prune`;
+9. audit `git status --porcelain --untracked-files=all`, current branch,
+   `git worktree list`, and remote refs;
+10. report the merge, checks, cleanup, and any residual state in plain language.
 
 If push/authentication fails, checks are missing or fail, GitHub rules block the
 merge, or cleanup is incomplete, stop at that point and preserve a resumable
@@ -680,6 +733,7 @@ Edit the corresponding step's walkthrough body in the Phase 1 / 2 / 3 sections a
 - No active task must triage first and ask for task-creation consent before creating a Trellis task.
 - Planning must distinguish lightweight PRD-only tasks from complex tasks that require `prd.md`, `design.md`, and `implement.md` before start.
 - Every required execution path must keep the Phase 3.4 commit reminder reachable before `/trellis:finish-work`.
+- Every implementation task must keep the base worktree on the base branch, dispatch work by absolute task/worktree paths, and remove the task worktree only after merge is verified.
 
 All tag blocks live in the `## Phase Index` section above, immediately after each phase summary:
 
