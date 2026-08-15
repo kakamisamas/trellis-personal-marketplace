@@ -143,7 +143,7 @@ class MarketplaceContractTests(unittest.TestCase):
 
     def test_gc_baseline_and_breadcrumb_contracts_are_explicit(self) -> None:
         required = (
-            "trellis-personal-marketplace/v1.0.0/scripts/setup.sh",
+            "trellis-personal-marketplace/v1.1.0/scripts/setup.sh",
             "python3 scripts/trellis_gc.py --apply",
             ".trellis/spec/guides/architecture-baseline.md",
             "Decision Log",
@@ -171,6 +171,70 @@ class MarketplaceContractTests(unittest.TestCase):
         self.assertNotIn("trellis_gc.py", completed)
         self.assertNotIn("architecture-baseline", completed)
 
+    def test_local_ocr_review_contract_is_reachable_and_bounded(self) -> None:
+        required = (
+            "ocr review --preview --format json",
+            "Inspect `files[]`",
+            "`will_review: true`",
+            "`reviewable_count` is zero",
+            "ocr llm test",
+            "ocr review --format json --audience agent",
+            "--background-file <absolute-task-path>/prd.md",
+            ".trellis/tasks/**,.trellis/.runtime/**,.trellis/workspace/**",
+            "manifest.terminal_state",
+            "completed_with_warnings",
+            "pairwise disjoint",
+            "their union to equal `selected`",
+            "Run OCR exactly once per task",
+            "do not run OCR again",
+            "ignore OCR's stderr `retry with: --resume` hint",
+        )
+        for phrase in required:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.workflow)
+
+        phase_22 = self.workflow.index("#### 2.2 Quality check")
+        final_pass = self.workflow.index("**Final pass (before Phase 3.4 commit)**", phase_22)
+        review = self.workflow.index("ocr review --preview", final_pass)
+        phase_23 = self.workflow.index("#### 2.3 Rollback", review)
+        self.assertLess(final_pass, review)
+        self.assertLess(review, phase_23)
+
+        for state in ("in_progress", "in_progress-inline"):
+            start = self.workflow.index(f"\n[workflow-state:{state}]\n") + 1
+            end = self.workflow.index(f"[/workflow-state:{state}]", start)
+            self.assertIn("local OCR advisory review", self.workflow[start:end])
+        for state in ("planning", "planning-inline", "completed"):
+            start = self.workflow.index(f"\n[workflow-state:{state}]\n") + 1
+            end = self.workflow.index(f"[/workflow-state:{state}]", start)
+            self.assertNotIn("local OCR advisory review", self.workflow[start:end])
+
+    def test_pr_body_ocr_record_is_upserted_and_read_back_before_checks(self) -> None:
+        phase_35 = self.workflow.index("#### 3.5 Wrap-up reminder")
+        create = self.workflow.index("gh pr create", phase_35)
+        marker = self.workflow.index("<!-- trellis-ocr:start -->", create)
+        edit = self.workflow.index("gh pr edit --body-file", marker)
+        read_back = self.workflow.index("gh pr view --json body", edit)
+        checks = self.workflow.index("gh pr checks --watch --fail-fast", read_back)
+        self.assertLess(create, marker)
+        self.assertLess(marker, edit)
+        self.assertLess(edit, read_back)
+        self.assertLess(read_back, checks)
+
+        for phrase in (
+            "<!-- trellis-ocr:end -->",
+            "OCR LLM / workspace",
+            "`completed` / `reused` / `waived` / `failed` / `selected`",
+            "Location | Decision | Evidence",
+            "total = fixed + rejected",
+            "- Status: `<complete|partial|skipped|failed>`",
+            "- Session: `<ID or none>`",
+            "- Coverage: `completed=<n> | reused=<n> | waived=<n> | failed=<n> | selected=<n>`",
+            "- Findings: `total=<n> | fixed=<n> | rejected=<n>`",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.workflow[phase_35:checks])
+
     def test_readme_explains_distribution_and_cleanup_boundaries(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         required = (
@@ -179,10 +243,18 @@ class MarketplaceContractTests(unittest.TestCase):
             "does not copy companion scripts or `.trellis/config.yaml`",
             "Do not attach raw",
             "after_archive",
-            "v1.0.0/scripts/setup.sh",
+            "v1.1.0/scripts/setup.sh",
             "trellis-spec-marketplace#v1.0.0",
             "no `--force` mode",
             "hook CWD",
+            "npm i -g @alibaba-group/open-code-review",
+            "ocr llm providers",
+            "ocr config provider",
+            "ocr config model",
+            "ocr llm test",
+            "Workspace reviews never use `--resume`",
+            "It runs exactly once",
+            "No OCR secret or review job is added to CI",
         )
         for phrase in required:
             with self.subTest(phrase=phrase):
@@ -201,7 +273,7 @@ class MarketplaceContractTests(unittest.TestCase):
     def test_release_assets_and_license_are_present(self) -> None:
         self.assertTrue(SETUP.is_file())
         self.assertTrue(GC.is_file())
-        self.assertIn('RELEASE_REF="v1.0.0"', SETUP.read_text(encoding="utf-8"))
+        self.assertIn('RELEASE_REF="v1.1.0"', SETUP.read_text(encoding="utf-8"))
         self.assertIn("MIT License", LICENSE.read_text(encoding="utf-8"))
 
     def test_public_source_has_no_personal_project_paths(self) -> None:

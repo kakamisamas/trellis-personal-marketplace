@@ -5,7 +5,7 @@
       "id": "solo-github-flow",
       "type": "workflow",
       "name": "Solo GitHub Flow",
-      "description": "Native Trellis workflow with isolated task worktrees, safe merged-task GC, and a GitHub PR gate",
+      "description": "Native Trellis workflow with isolated task worktrees, local OCR review records, safe merged-task GC, and a GitHub PR gate",
       "path": "workflows/solo-github-flow/workflow.md",
       "tags": [
         "workflow",
@@ -14,6 +14,8 @@
         "worktree",
         "gc",
         "multi-agent",
+        "code-review",
+        "ocr",
         "ci",
         "squash"
       ]
