@@ -185,7 +185,8 @@ class MarketplaceContractTests(unittest.TestCase):
             "completed_with_warnings",
             "pairwise disjoint",
             "their union to equal `selected`",
-            "At most one fresh workspace re-review",
+            "Run OCR exactly once per task",
+            "do not run OCR again",
             "ignore OCR's stderr `retry with: --resume` hint",
         )
         for phrase in required:
@@ -227,6 +228,7 @@ class MarketplaceContractTests(unittest.TestCase):
             "Location | Decision | Evidence",
             "total = fixed + rejected",
             "- Status: `<complete|partial|skipped|failed>`",
+            "- Session: `<ID or none>`",
             "- Coverage: `completed=<n> | reused=<n> | waived=<n> | failed=<n> | selected=<n>`",
             "- Findings: `total=<n> | fixed=<n> | rejected=<n>`",
         ):
@@ -251,6 +253,7 @@ class MarketplaceContractTests(unittest.TestCase):
             "ocr config model",
             "ocr llm test",
             "Workspace reviews never use `--resume`",
+            "It runs exactly once",
             "No OCR secret or review job is added to CI",
         )
         for phrase in required:

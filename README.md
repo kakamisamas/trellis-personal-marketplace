@@ -146,8 +146,9 @@ agent context. Official Claude Code or Codex plugins may help invoke OCR
 interactively; they are optional and do not replace the CLI contract above.
 
 OCR first previews the supported files, excludes Trellis task/runtime metadata,
-and records `complete`, `partial`, `skipped`, or `failed`. A partial or failed
-workspace review may be rerun once as a fresh review. Workspace reviews never use `--resume`, even if OCR stderr suggests it. The resulting coverage and
+and records `complete`, `partial`, `skipped`, or `failed`. It runs exactly once
+per task; after the agent disposes every finding, tests validate the fixes without
+another OCR call. Workspace reviews never use `--resume`, even if OCR stderr suggests it. The resulting coverage and
 per-finding decisions are written into a marked PR-body section and read back
 before GitHub checks begin. No OCR secret or review job is added to CI.
 

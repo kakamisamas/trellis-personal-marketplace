@@ -63,9 +63,17 @@ for step in 1.0 1.4 2.1 2.2 3.3 3.4 3.5; do
   fi
 done
 
-grep -Fq 'ocr review --preview --format json' <<<"$phase_22_context"
-grep -Fq 'At most one fresh workspace re-review' <<<"$phase_22_context"
-grep -Fq 'Workspace mode does not support `--resume`' <<<"$phase_22_context"
+assert_phase_22_context() {
+  local phrase="$1"
+  grep -Fq "$phrase" <<<"$phase_22_context" || {
+    printf 'Phase 2.2 context missing required contract: %s\n' "$phrase" >&2
+    exit 1
+  }
+}
+assert_phase_22_context 'ocr review --preview --format json'
+assert_phase_22_context 'Run OCR exactly once per task'
+assert_phase_22_context 'do not run OCR again'
+assert_phase_22_context 'does not support `--resume`'
 
 git -C "$temporary" config user.name "Trellis Smoke"
 git -C "$temporary" config user.email "trellis-smoke@example.invalid"
