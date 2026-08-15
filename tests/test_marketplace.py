@@ -10,6 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 INDEX = ROOT / "index.json"
 WORKFLOW = ROOT / "workflows" / "solo-github-flow" / "workflow.md"
 CI = ROOT / ".github" / "workflows" / "ci.yml"
+SETUP = ROOT / "scripts" / "setup.sh"
+GC = ROOT / "scripts" / "trellis_gc.py"
+LICENSE = ROOT / "LICENSE"
 NATIVE_0612_SHA256 = "e2c5ab7004ff83a5a804b50df81746aa1d558dd4480463287622605f86a82a76"
 
 
@@ -25,6 +28,7 @@ class MarketplaceContractTests(unittest.TestCase):
         entry = self.payload["templates"][0]
         self.assertEqual(entry["id"], "solo-github-flow")
         self.assertEqual(entry["type"], "workflow")
+        self.assertNotIn("version", entry)
         path = Path(entry["path"])
         self.assertFalse(path.is_absolute())
         self.assertNotIn("..", path.parts)
@@ -137,14 +141,48 @@ class MarketplaceContractTests(unittest.TestCase):
         self.assertLess(worktree_add, task_create)
         self.assertLess(merge, worktree_remove)
 
-    def test_readme_explains_workflow_only_cleanup_boundary(self) -> None:
+    def test_gc_baseline_and_breadcrumb_contracts_are_explicit(self) -> None:
+        required = (
+            "trellis-personal-marketplace/v1.0.0/scripts/setup.sh",
+            "python3 scripts/trellis_gc.py --apply",
+            ".trellis/spec/guides/architecture-baseline.md",
+            "Decision Log",
+            "headRefOid",
+            "It is safe to leave uncertain candidates behind",
+        )
+        for phrase in required:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.workflow)
+
+        for state in ("planning", "planning-inline"):
+            start = self.workflow.index(f"[workflow-state:{state}]")
+            end = self.workflow.index(f"[/workflow-state:{state}]", start)
+            self.assertIn("architecture-baseline.md", self.workflow[start:end])
+        for state in ("in_progress", "in_progress-inline"):
+            start = self.workflow.index(f"[workflow-state:{state}]")
+            end = self.workflow.index(f"[/workflow-state:{state}]", start)
+            block = self.workflow[start:end]
+            self.assertIn("Decision Log", block)
+            self.assertIn("trellis_gc.py --apply", block)
+
+        completed_start = self.workflow.index("\n[workflow-state:completed]\n") + 1
+        completed_end = self.workflow.index("[/workflow-state:completed]", completed_start)
+        completed = self.workflow[completed_start:completed_end]
+        self.assertNotIn("trellis_gc.py", completed)
+        self.assertNotIn("architecture-baseline", completed)
+
+    def test_readme_explains_distribution_and_cleanup_boundaries(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         required = (
             "coordinating worktree",
-            "workflow-only marketplace template",
-            "not companion scripts or `.trellis/config.yaml`",
-            "Do not attach",
+            "downloads only `workflow.md`",
+            "does not copy companion scripts or `.trellis/config.yaml`",
+            "Do not attach raw",
             "after_archive",
+            "v1.0.0/scripts/setup.sh",
+            "trellis-spec-marketplace#v1.0.0",
+            "no `--force` mode",
+            "hook CWD",
         )
         for phrase in required:
             with self.subTest(phrase=phrase):
@@ -158,6 +196,13 @@ class MarketplaceContractTests(unittest.TestCase):
     def test_remote_smoke_pins_the_supported_trellis_package(self) -> None:
         ci = CI.read_text(encoding="utf-8")
         self.assertIn("@mindfoldhq/trellis@0.6.12", ci)
+        self.assertNotIn("@mindfoldhq/trellis@0.6.15", ci)
+
+    def test_release_assets_and_license_are_present(self) -> None:
+        self.assertTrue(SETUP.is_file())
+        self.assertTrue(GC.is_file())
+        self.assertIn('RELEASE_REF="v1.0.0"', SETUP.read_text(encoding="utf-8"))
+        self.assertIn("MIT License", LICENSE.read_text(encoding="utf-8"))
 
     def test_public_source_has_no_personal_project_paths(self) -> None:
         forbidden = (
@@ -166,7 +211,7 @@ class MarketplaceContractTests(unittest.TestCase):
             "Ankicenter",
             "ARCHITECTURE.md",
         )
-        files = [INDEX, WORKFLOW, ROOT / "README.md"]
+        files = [INDEX, WORKFLOW, ROOT / "README.md", SETUP, GC]
         content = "\n".join(path.read_text(encoding="utf-8") for path in files)
         for phrase in forbidden:
             with self.subTest(phrase=phrase):
