@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -40,7 +41,26 @@ class SetupTests(unittest.TestCase):
         env = dict(os.environ)
         env["TRELLIS_SETUP_ASSET_ROOT"] = str(ROOT)
         if without_gh:
-            env["PATH"] = "/usr/bin:/bin"
+            isolated_bin = root / ".test-bin"
+            isolated_bin.mkdir()
+            for command in (
+                "chmod",
+                "cmp",
+                "cp",
+                "date",
+                "diff",
+                "dirname",
+                "git",
+                "mkdir",
+                "mktemp",
+                "mv",
+                "python3",
+                "rm",
+            ):
+                source = shutil.which(command)
+                assert source is not None
+                (isolated_bin / command).symlink_to(source)
+            env["PATH"] = str(isolated_bin)
         return subprocess.run(
             ["/bin/bash", str(SETUP), *args],
             cwd=root,
