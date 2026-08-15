@@ -46,19 +46,23 @@ cmp "$ROOT/scripts/trellis_gc.py" "$temporary/scripts/trellis_gc.py"
 cmp "$ROOT/assets/ci/pr-gate.yml" "$temporary/.github/workflows/pr-gate.yml"
 grep -Fq 'python3 scripts/trellis_gc.py --apply' "$temporary/.trellis/config.yaml"
 
+phase_22_context=""
 for step in 1.0 1.4 2.1 2.2 3.3 3.4 3.5; do
-  (
-    cd "$temporary"
-    python3 .trellis/scripts/get_context.py \
-      --mode phase --step "$step" --platform codex >/dev/null
-  )
+  if [[ "$step" == "2.2" ]]; then
+    phase_22_context="$(
+      cd "$temporary"
+      python3 .trellis/scripts/get_context.py \
+        --mode phase --step "$step" --platform codex
+    )"
+  else
+    (
+      cd "$temporary"
+      python3 .trellis/scripts/get_context.py \
+        --mode phase --step "$step" --platform codex >/dev/null
+    )
+  fi
 done
 
-phase_22_context="$(
-  cd "$temporary"
-  python3 .trellis/scripts/get_context.py \
-    --mode phase --step 2.2 --platform codex
-)"
 grep -Fq 'ocr review --preview --format json' <<<"$phase_22_context"
 grep -Fq 'At most one fresh workspace re-review' <<<"$phase_22_context"
 grep -Fq 'Workspace mode does not support `--resume`' <<<"$phase_22_context"
