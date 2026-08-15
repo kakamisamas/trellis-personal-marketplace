@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-readonly RELEASE_REF="v1.0.0"
+readonly RELEASE_REF="v1.1.0"
 readonly RAW_BASE="https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/${RELEASE_REF}"
 readonly LOCAL_ASSET_ROOT="${TRELLIS_SETUP_ASSET_ROOT:-}"
 readonly HOOK_COMMAND='python3 scripts/trellis_gc.py --apply'
@@ -31,6 +31,11 @@ if ! command -v gh >/dev/null 2>&1; then
   printf '[WARN] gh is unavailable; GC will conservatively retain candidates unless --force-gone is used\n'
 elif ! gh auth status >/dev/null 2>&1; then
   printf '[WARN] gh is not authenticated; GC will conservatively retain unverifiable candidates\n'
+fi
+if ! command -v ocr >/dev/null 2>&1; then
+  printf '[WARN] ocr is unavailable; local AI review will be recorded as skipped (install with: npm i -g @alibaba-group/open-code-review)\n'
+else
+  printf '[READY] ocr is available; configure and verify its user-level LLM separately with ocr llm test\n'
 fi
 
 temporary="$(mktemp -d "${TMPDIR:-/tmp}/trellis-setup.XXXXXX")" || exit 1
@@ -157,7 +162,7 @@ for skill_root in "${skill_roots[@]}"; do
   install_conservative "$skill_source" "${skill_root}/trellis-setup/SKILL.md"
 done
 
-printf '[REPORT] GC script, PR gate, archive hook, and setup skill checked for %s\n' "$repo_root"
+printf '[REPORT] GC script, PR gate, archive hook, setup skill, and OCR CLI readiness checked for %s\n' "$repo_root"
 printf '[MANUAL] Enable automatic head-branch deletion and require the size-gate check in repository settings.\n'
 if $partial; then
   exit 2

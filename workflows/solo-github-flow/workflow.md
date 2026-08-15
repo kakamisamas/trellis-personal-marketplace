@@ -248,7 +248,8 @@ The sub-agent may read and modify files and run commands only inside `Workdir`. 
 
 [workflow-state:in_progress]
 Tools: `trellis-implement` / `trellis-research` are sub-agent types only (Task/Agent tool, NOT Skill; there is no skill by these names). `trellis-update-spec` is a skill. `trellis-check` exists as both; prefer the Agent form when verifying after code changes.
-Flow: `trellis-implement` -> `trellis-check` -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
+Flow: `trellis-implement` -> `trellis-check` -> final Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
+A final Phase 2.2 is not green until every OCR comment is fixed or rejected with verifiable evidence, or an unavailable/partial/failed review is recorded for the PR body. OCR workspace reviews never use `--resume`.
 During Phase 3.3, update the architecture baseline Decision Log when module boundaries, dependency direction, or recorded data flow changed. During Phase 3.5, use `scripts/trellis_gc.py --apply` for verified cleanup.
 Main-session default: dispatch implement/check sub-agents into the task's recorded worktree. Sub-agent self-exemption: if already running as `trellis-implement`, do NOT spawn another `trellis-implement` or `trellis-check`; if already running as `trellis-check`, do NOT spawn another `trellis-check` or `trellis-implement`. Dispatch is main session only.
 Dispatch prompt starts with absolute `Active task:` and `Workdir:` lines. Only change files under `Workdir`. Read context: jsonl entries -> `prd.md` -> `design.md if present` -> `implement.md if present`.
@@ -260,7 +261,8 @@ Dispatch prompt starts with absolute `Active task:` and `Workdir:` lines. Only c
      instead of dispatching sub-agents. -->
 
 [workflow-state:in_progress-inline]
-Flow: `trellis-before-dev` -> edit -> `trellis-check` -> validation -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
+Flow: `trellis-before-dev` -> edit -> `trellis-check` -> validation -> final Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
+A final Phase 2.2 is not green until every OCR comment is fixed or rejected with verifiable evidence, or an unavailable/partial/failed review is recorded for the PR body. OCR workspace reviews never use `--resume`.
 During Phase 3.3, update the architecture baseline Decision Log when module boundaries, dependency direction, or recorded data flow changed. During Phase 3.5, use `scripts/trellis_gc.py --apply` for verified cleanup.
 Do not dispatch implement/check sub-agents in inline mode.
 Run all reads, edits, and commands inside the task's recorded worktree; keep the coordinating base worktree unchanged.
@@ -344,7 +346,7 @@ Before changing files:
 1. verify `scripts/trellis_gc.py`, `.github/workflows/pr-gate.yml`, the
    `hooks.after_archive` GC command, and the `trellis-setup` skill are installed;
    if any is missing, run
-   `bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.0.0/scripts/setup.sh)`
+   `bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.1.0/scripts/setup.sh)`
    once from the repository root and review its report;
 2. from the coordinating base worktree run
    `python3 scripts/trellis_gc.py --apply` to remove clean leftovers whose
@@ -652,6 +654,20 @@ If issues are found → fix → re-check, until green.
 
 **Final pass (before Phase 3.4 commit)**: the last 2.2 of a task must run full-scope, not just on the latest implement chunk. List all affected packages with `python3 ./.trellis/scripts/get_context.py --mode packages`, then load each package's spec index Quality Check section. This catches cross-layer / multi-package issues a mid-iteration local 2.2 cannot.
 
+After that full-scope check and its tests are green, the main session runs one local Open Code Review (OCR) advisory review from the task worktree. This is part of the final 2.2 completion condition; do not add a separate workflow step that `/trellis:continue` could skip.
+
+1. Use this exact semantic exclusion set for preview and review:
+   `**/*.lock,**/*-lock.*,dist/**,**/*.min.*,.trellis/tasks/**,.trellis/.runtime/**,.trellis/workspace/**`.
+   It removes generated artifacts and Trellis bookkeeping while preserving legitimate changes such as `.trellis/config.yaml` and supported files under `.trellis/scripts/`.
+2. If `ocr` is unavailable, record `Status: skipped` plus the installation reason and continue. Otherwise run `ocr review --preview --format json --exclude '<patterns>'` first. Inspect `files[]`: no entry with `will_review: true` may have a `.trellis/tasks/`, `.trellis/.runtime/`, or `.trellis/workspace/` path. A preview whose `reviewable_count` is zero is a recorded `skipped` review.
+3. Run `ocr llm test` only when preview found reviewable files. If connectivity or configuration fails, record `Status: skipped` with the concrete reason and continue without switching to delegate mode.
+4. Run `ocr review --format json --audience agent --background-file <absolute-task-path>/prd.md --exclude '<patterns>'`. Redirect stdout and stderr to separate temporary files and read both in full; never pipe review output through `head` or `tail`. Do not commit raw OCR output.
+5. Treat stdout as the primary result. Prefer `manifest.terminal_state`; otherwise normalize stdout `status` as follows: `complete`/`success` -> `complete`, `partial`/`completed_with_warnings`/`completed_with_errors` -> `partial`, `skipped` -> `skipped`, and all other failed or non-zero-without-result paths -> `failed`. Stderr supplies only failure diagnostics, usage, and session metadata; it never overrides a valid stdout manifest.
+6. For a manifest, require `completed`, `reused`, `failed`, and `waived` item IDs to be pairwise disjoint and their union to equal `selected`. If parsing or this invariant fails, record `Status: failed`. Report all five counts without deriving `completed` by subtraction.
+7. Every unique `comments[]` entry across all runs must be either fixed or rejected. A rejection cites verifiable current code, actual data flow, or test evidence; do not silently discard low-priority comments. After accepted fixes, rerun affected tests and the full-scope checks.
+8. At most one fresh workspace re-review is allowed. Use it after fixes or after a partial/failed first attempt. Workspace mode does not support `--resume`: explicitly ignore OCR's stderr `retry with: --resume` hint and rerun the original workspace command without `--resume`. Process the second run's comments and retest fixes, but never start a third review.
+9. Keep the normalized status, every session ID, the latest coverage counts, and the fixed/rejected disposition rows available for the Phase 3.5 PR body. This is advisory: missing configuration, partial coverage, or tool failure is visible but does not block the finish flow.
+
 #### 2.3 Rollback `[on demand]`
 
 - `check` reveals a prd defect → return to Phase 1, fix `prd.md`, then redo 2.1
@@ -729,26 +745,52 @@ archive time it only clears older leftovers; lifecycle hook failures are non-blo
 1. push the captured task branch to its actual remote;
 2. create or reuse its pull request with `gh pr create`, targeting the recorded
    base and including change, validation, risk, and rollback information;
-3. prove that at least one check exists, then wait with
+3. read the complete current PR body, then create or replace only the block from
+   `<!-- trellis-ocr:start -->` through `<!-- trellis-ocr:end -->` with the final
+   Phase 2.2 OCR record. Preserve all content outside the markers, apply the full
+   body with `gh pr edit --body-file`, then re-read it with `gh pr view --json body`.
+   The block must contain status, `OCR LLM / workspace`, all session IDs, latest
+   `completed` / `reused` / `waived` / `failed` / `selected` counts, total/fixed/
+   rejected counts, and one `Location | Decision | Evidence` row per unique
+   finding. Require `total = fixed + rejected` for complete/partial reviews;
+   skipped/failed reviews instead require a concrete reason. Stop if the markers,
+   counts, or rows are missing after the read-back. Use this stable shape:
+
+   ```markdown
+   <!-- trellis-ocr:start -->
+   ### Local OCR Review
+   - Status: `<complete|partial|skipped|failed>`
+   - Engine / mode: `OCR LLM / workspace`
+   - Sessions: `<comma-separated IDs or none>`
+   - Coverage: `completed=<n> | reused=<n> | waived=<n> | failed=<n> | selected=<n>`
+   - Findings: `total=<n> | fixed=<n> | rejected=<n>`
+   - Reason: `<required for skipped/failed; otherwise n/a>`
+
+   | Location | Decision | Evidence |
+   | --- | --- | --- |
+   | `<path:line>` | `<fixed|rejected>` | `<verifiable reason or validation>` |
+   <!-- trellis-ocr:end -->
+   ```
+4. prove that at least one check exists, then wait with
    `gh pr checks --watch --fail-fast`; no checks is not green;
-4. re-read the PR state, head/base, discussions or review requirements,
+5. re-read the PR state, head/base, discussions or review requirements,
    mergeability, and head SHA;
-5. when every repository gate is satisfied, run
+6. when every repository gate is satisfied, run
    `gh pr merge --squash --delete-branch --match-head-commit <head-sha>` without
    bypassing branch protection or review policy;
-6. verify the coordinating worktree is still on the actual base branch and
+7. verify the coordinating worktree is still on the actual base branch and
    fast-forward it from its upstream;
-7. verify the PR is merged and the remote task branch is absent, then require
+8. verify the PR is merged and the remote task branch is absent, then require
    the task worktree to be clean;
-8. from the base worktree run `python3 scripts/trellis_gc.py --apply` and
+9. from the base worktree run `python3 scripts/trellis_gc.py --apply` and
    confirm this task's worktree and local branch are gone. If the script is
    unavailable, use the already captured task path and branch only: re-confirm
    the PR is merged, its head SHA equals the local branch, and the worktree is
    clean, then run `git worktree remove <absolute-worktree-path>`,
    `git branch -D <task-branch>`, and `git worktree prune`;
-9. audit `git status --porcelain --untracked-files=all`, current branch,
+10. audit `git status --porcelain --untracked-files=all`, current branch,
    `git worktree list`, and remote refs;
-10. report the merge, checks, cleanup, and any residual state in plain language.
+11. report the merge, checks, cleanup, and any residual state in plain language.
 
 If push/authentication fails, checks are missing or fail, GitHub rules block the
 merge, or cleanup is incomplete, stop at that point and preserve a resumable
@@ -767,6 +809,7 @@ Edit the corresponding step's walkthrough body in the Phase 1 / 2 / 3 sections a
 - No active task must triage first and ask for task-creation consent before creating a Trellis task.
 - Planning must distinguish lightweight PRD-only tasks from complex tasks that require `prd.md`, `design.md`, and `implement.md` before start.
 - Every required execution path must keep the Phase 3.4 commit reminder reachable before `/trellis:finish-work`.
+- Every final Phase 2.2 path must run or explicitly record the local OCR advisory review before Phase 3.3; workspace re-reviews must stay fresh and must never use `--resume`.
 - Every implementation task must keep the base worktree on the base branch, dispatch work by absolute task/worktree paths, and remove the task worktree only after merge is verified.
 
 All tag blocks live in the `## Phase Index` section above, immediately after each phase summary:

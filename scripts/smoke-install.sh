@@ -54,6 +54,15 @@ for step in 1.0 1.4 2.1 2.2 3.3 3.4 3.5; do
   )
 done
 
+phase_22_context="$(
+  cd "$temporary"
+  python3 .trellis/scripts/get_context.py \
+    --mode phase --step 2.2 --platform codex
+)"
+grep -Fq 'ocr review --preview --format json' <<<"$phase_22_context"
+grep -Fq 'At most one fresh workspace re-review' <<<"$phase_22_context"
+grep -Fq 'Workspace mode does not support `--resume`' <<<"$phase_22_context"
+
 git -C "$temporary" config user.name "Trellis Smoke"
 git -C "$temporary" config user.email "trellis-smoke@example.invalid"
 git -C "$temporary" add .

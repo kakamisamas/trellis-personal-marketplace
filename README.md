@@ -15,6 +15,9 @@ It keeps the native planning and quality gates and adds these behaviors:
   branch-cleanup flow;
 - a release-pinned setup installs safe merged-task GC, a 3,500-line PR gate,
   the archive lifecycle hook, and a project-local setup skill;
+- the final local quality pass runs advisory Open Code Review (OCR), requires
+  every finding to be fixed or rejected with evidence, and persists the result
+  in the pull-request body;
 - planning and spec updates consult an optional architecture baseline.
 
 The template does not replace or modify Trellis's `trellis-finish-work` skill.
@@ -46,13 +49,16 @@ skips the current and main worktrees, so it only clears older leftovers.
 - Git with `git worktree` support
 - an authenticated GitHub CLI (`gh`) for normal GC verification and PR finish
 - a GitHub repository whose pull requests publish at least one check result
+- optional Open Code Review 1.9.4 or later (`ocr`) plus Git 2.41 or later for
+  local AI review; missing or unconfigured OCR is recorded but does not block
+  the workflow
 
 ## Install in a new project
 
 ```bash
 trellis init --yes --user <name> --codex \
   --workflow solo-github-flow \
-  --workflow-source gh:kakamisamas/trellis-personal-marketplace#v1.0.0
+  --workflow-source gh:kakamisamas/trellis-personal-marketplace#v1.1.0
 ```
 
 Select the platform flags your project actually uses; `--codex` is only an
@@ -64,10 +70,10 @@ List the remote templates, then switch:
 
 ```bash
 trellis workflow --list \
-  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.0.0
+  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.1.0
 
 trellis workflow \
-  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.0.0 \
+  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.1.0 \
   --template solo-github-flow
 ```
 
@@ -75,7 +81,7 @@ If `.trellis/workflow.md` has local edits, preview the replacement first:
 
 ```bash
 trellis workflow \
-  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.0.0 \
+  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.1.0 \
   --template solo-github-flow \
   --create-new
 ```
@@ -89,8 +95,8 @@ From the target repository root, preview and then apply the release-pinned
 installer:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.0.0/scripts/setup.sh) --dry-run
-bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.0.0/scripts/setup.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.1.0/scripts/setup.sh) --dry-run
+bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.1.0/scripts/setup.sh)
 ```
 
 The installer manages four targets:
@@ -105,7 +111,8 @@ The installer manages four targets:
 
 An existing PR gate or setup skill is never overwritten. Setup prints a diff
 and exits `2` so project-specific changes can be reviewed manually. There is no `--force` mode in v1. A missing or unauthenticated `gh` is only a warning: GC
-keeps candidates it cannot verify.
+keeps candidates it cannot verify. The installer also checks whether `ocr` is on
+`PATH`, but never installs it, chooses a model, or writes an API key.
 
 Lifecycle hooks run from the repository or linked-worktree root in Trellis
 0.6.12, so the relative GC path resolves there. The repository smoke test
@@ -117,6 +124,32 @@ stdout.
 
 After the first PR runs the gate, configure branch protection to require its
 `size-gate` check and enable automatic deletion of merged head branches.
+
+## Configure local OCR review
+
+Install OCR once per machine, then choose and test the user-level LLM provider:
+
+```bash
+npm i -g @alibaba-group/open-code-review
+ocr llm providers
+ocr config provider
+ocr config model
+ocr llm test
+```
+
+The workflow calls the OCR CLI directly in workspace mode after the final Phase
+2.2 checks and before the task is committed. Its default design uses OCR's own
+configured LLM as an independent reviewer. `ocr delegate` is an optional lower-
+cost alternative for manual use, but the workflow does not fall back to it
+automatically because that would collapse author and reviewer into the same
+agent context. Official Claude Code or Codex plugins may help invoke OCR
+interactively; they are optional and do not replace the CLI contract above.
+
+OCR first previews the supported files, excludes Trellis task/runtime metadata,
+and records `complete`, `partial`, `skipped`, or `failed`. A partial or failed
+workspace review may be rerun once as a fresh review. Workspace reviews never use `--resume`, even if OCR stderr suggests it. The resulting coverage and
+per-finding decisions are written into a marked PR-body section and read back
+before GitHub checks begin. No OCR secret or review job is added to CI.
 
 ## Install the architecture baseline
 
@@ -130,7 +163,7 @@ trellis init --registry gh:kakamisamas/trellis-spec-marketplace#v1.0.0 \
 ## Update and rollback
 
 Remote workflow and tooling updates are not applied silently. For a later
-release, replace `v1.0.0` with the new immutable tag, preview the workflow with
+release, replace `v1.1.0` with the new immutable tag, preview the workflow with
 `--create-new`, review the installer dry-run and diffs, then switch deliberately.
 
 To return to Trellis's bundled workflow:

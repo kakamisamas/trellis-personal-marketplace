@@ -37,10 +37,16 @@ class SetupTests(unittest.TestCase):
         manager.name = value
         return manager
 
-    def run_setup(self, root: Path, *args: str, without_gh: bool = False) -> subprocess.CompletedProcess[str]:
+    def run_setup(
+        self,
+        root: Path,
+        *args: str,
+        without_gh: bool = False,
+        without_ocr: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
         env = dict(os.environ)
         env["TRELLIS_SETUP_ASSET_ROOT"] = str(ROOT)
-        if without_gh:
+        if without_gh or without_ocr:
             isolated_bin = root / ".test-bin"
             isolated_bin.mkdir()
             for command in (
@@ -60,6 +66,12 @@ class SetupTests(unittest.TestCase):
                 source = shutil.which(command)
                 assert source is not None
                 (isolated_bin / command).symlink_to(source)
+            true_command = shutil.which("true")
+            assert true_command is not None
+            if not without_gh:
+                (isolated_bin / "gh").symlink_to(true_command)
+            if not without_ocr:
+                (isolated_bin / "ocr").symlink_to(true_command)
             env["PATH"] = str(isolated_bin)
         return subprocess.run(
             ["/bin/bash", str(SETUP), *args],
@@ -118,6 +130,20 @@ class SetupTests(unittest.TestCase):
         result = self.run_setup(root, "--dry-run", without_gh=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("gh is unavailable", result.stdout)
+
+    def test_missing_ocr_is_only_a_warning(self) -> None:
+        root = self.make_repo()
+        result = self.run_setup(root, "--dry-run", without_ocr=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("ocr is unavailable", result.stdout)
+        self.assertIn("@alibaba-group/open-code-review", result.stdout)
+
+    def test_available_ocr_is_reported_without_running_it(self) -> None:
+        root = self.make_repo()
+        result = self.run_setup(root, "--dry-run", without_gh=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("ocr is available", result.stdout)
+        self.assertNotIn("ocr is unavailable", result.stdout)
 
 
 if __name__ == "__main__":
