@@ -38,6 +38,14 @@ else
   cmp "$ROOT/workflows/solo-github-flow/workflow.md" "$temporary/.trellis/workflow.md"
 fi
 
+(
+  cd "$temporary"
+  TRELLIS_SETUP_ASSET_ROOT="$ROOT" "$ROOT/scripts/setup.sh"
+)
+cmp "$ROOT/scripts/trellis_gc.py" "$temporary/scripts/trellis_gc.py"
+cmp "$ROOT/assets/ci/pr-gate.yml" "$temporary/.github/workflows/pr-gate.yml"
+grep -Fq 'python3 scripts/trellis_gc.py --apply' "$temporary/.trellis/config.yaml"
+
 for step in 1.0 1.4 2.1 2.2 3.3 3.4 3.5; do
   (
     cd "$temporary"
@@ -101,11 +109,23 @@ PY
 
 git -C "$worktree_path" add "$task_rel"
 git -C "$worktree_path" commit -q -m "test: record worktree task"
-(
-  cd "$temporary"
-  TRELLIS_CONTEXT_ID=smoke-coordinator \
-    python3 .trellis/scripts/task.py finish >/dev/null
-)
+
+archive_log="$({
+  cd "$worktree_path"
+  TRELLIS_CONTEXT_ID=smoke-task \
+    python3 .trellis/scripts/task.py archive "$task_rel" --no-commit
+} 2>&1)"
+if grep -Fq "Hook failed" <<<"$archive_log"; then
+  printf '%s\n' "$archive_log" >&2
+  exit 1
+fi
+[[ -d "$temporary" ]]
+[[ -d "$worktree_path" ]]
+
+git -C "$worktree_path" add .trellis
+if ! git -C "$worktree_path" diff --cached --quiet; then
+  git -C "$worktree_path" commit -q -m "test: archive worktree task"
+fi
 git -C "$temporary" worktree remove "$worktree_path"
 git -C "$temporary" branch -D "$task_branch" >/dev/null
 git -C "$temporary" worktree prune

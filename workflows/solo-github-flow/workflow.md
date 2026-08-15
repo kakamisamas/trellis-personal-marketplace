@@ -187,6 +187,7 @@ No active task. First classify the current turn and ask for task-creation consen
 Worktree coordinator exception: if this session already holds a verified absolute `Active task` and `Workdir` created in Phase 1.0, continue that task's planning from those paths; do not create a duplicate task merely because the base worktree has no local pointer yet.
 Simple conversation / small task: ask only whether this turn should create a Trellis task. If the user says no, skip Trellis for this session.
 Complex task: ask the user if you can create a Trellis task and enter the planning phase. If the user says no, explain, clarify scope, or suggest a smaller split.
+After consent and before creating a task worktree, bootstrap missing solo-github-flow tooling and run the merged-task GC described in Phase 1.0.
 [/workflow-state:no_task]
 
 ### Phase 1: Plan
@@ -202,6 +203,7 @@ Complex task: ask the user if you can create a Trellis task and enter the planni
 [workflow-state:planning]
 Load `trellis-brainstorm`; stay in planning.
 Lightweight: `prd.md` can be enough. Complex: finish `prd.md`, `design.md`, and `implement.md`; ask for review before `task.py start`.
+If `.trellis/spec/guides/architecture-baseline.md` exists, read it before planning and state whether the task keeps, advances, or deviates from it.
 When presenting the plan, pair each technical action with the plain-language function or result it delivers.
 Keep all planning files and commands inside the task's recorded worktree. The base worktree coordinates by absolute task/worktree paths and stays on the base branch.
 Multi-deliverable scope: consider a parent task plus independently verifiable child worktrees; dependencies must be written in child artifacts, not implied by tree position.
@@ -217,6 +219,7 @@ Sub-agent mode: curate `implement.jsonl` and `check.jsonl` as spec/research mani
 [workflow-state:planning-inline]
 Load `trellis-brainstorm`; stay in planning.
 Lightweight: `prd.md` can be enough. Complex: finish `prd.md`, `design.md`, and `implement.md`; ask for review before `task.py start`.
+If `.trellis/spec/guides/architecture-baseline.md` exists, read it before planning and state whether the task keeps, advances, or deviates from it.
 When presenting the plan, pair each technical action with the plain-language function or result it delivers.
 Keep all planning files and commands inside the task's recorded worktree. The base worktree coordinates by absolute task/worktree paths and stays on the base branch.
 Multi-deliverable scope: consider a parent task plus independently verifiable child worktrees; dependencies must be written in child artifacts, not implied by tree position.
@@ -246,6 +249,7 @@ The sub-agent may read and modify files and run commands only inside `Workdir`. 
 [workflow-state:in_progress]
 Tools: `trellis-implement` / `trellis-research` are sub-agent types only (Task/Agent tool, NOT Skill; there is no skill by these names). `trellis-update-spec` is a skill. `trellis-check` exists as both; prefer the Agent form when verifying after code changes.
 Flow: `trellis-implement` -> `trellis-check` -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
+During Phase 3.3, update the architecture baseline Decision Log when module boundaries, dependency direction, or recorded data flow changed. During Phase 3.5, use `scripts/trellis_gc.py --apply` for verified cleanup.
 Main-session default: dispatch implement/check sub-agents into the task's recorded worktree. Sub-agent self-exemption: if already running as `trellis-implement`, do NOT spawn another `trellis-implement` or `trellis-check`; if already running as `trellis-check`, do NOT spawn another `trellis-check` or `trellis-implement`. Dispatch is main session only.
 Dispatch prompt starts with absolute `Active task:` and `Workdir:` lines. Only change files under `Workdir`. Read context: jsonl entries -> `prd.md` -> `design.md if present` -> `implement.md if present`.
 [/workflow-state:in_progress]
@@ -257,6 +261,7 @@ Dispatch prompt starts with absolute `Active task:` and `Workdir:` lines. Only c
 
 [workflow-state:in_progress-inline]
 Flow: `trellis-before-dev` -> edit -> `trellis-check` -> validation -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
+During Phase 3.3, update the architecture baseline Decision Log when module boundaries, dependency direction, or recorded data flow changed. During Phase 3.5, use `scripts/trellis_gc.py --apply` for verified cleanup.
 Do not dispatch implement/check sub-agents in inline mode.
 Run all reads, edits, and commands inside the task's recorded worktree; keep the coordinating base worktree unchanged.
 Read context: `prd.md` -> `design.md if present` -> `implement.md if present`, plus relevant spec/research loaded by skills.
@@ -336,17 +341,31 @@ Goal: classify the request, get task-creation consent when a task is needed, and
 Create the task worktree, branch, and task directory only after task-creation consent. The coordinating worktree stays checked out on the base branch and is used only for planning, acceptance, merge, and cleanup.
 Before changing files:
 
-1. inspect the complete working tree and stop on changes that cannot be safely
+1. verify `scripts/trellis_gc.py`, `.github/workflows/pr-gate.yml`, the
+   `hooks.after_archive` GC command, and the `trellis-setup` skill are installed;
+   if any is missing, run
+   `bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.0.0/scripts/setup.sh)`
+   once from the repository root and review its report;
+2. from the coordinating base worktree run
+   `python3 scripts/trellis_gc.py --apply` to remove clean leftovers whose
+   upstream is gone and whose merged PR head matches the local branch;
+3. inspect the complete working tree and stop on changes that cannot be safely
    attributed to the user or the current task;
-2. discover the actual remote and default/base branch instead of assuming
+4. discover the actual remote and default/base branch instead of assuming
    `origin` or `main`;
-3. require the base worktree to be clean and fast-forward its base branch from
+5. require the base worktree to be clean and fast-forward its base branch from
    upstream without rewriting history;
-4. derive one canonical task directory name `<MM-DD-slug>`, branch
+6. derive one canonical task directory name `<MM-DD-slug>`, branch
    `task/<MM-DD-slug>`, and sibling worktree path
    `../<repo>-wt/<MM-DD-slug>`; repository branch rules may override only the
    `task/` prefix;
-5. refuse branch/path collisions instead of reusing an unrelated worktree.
+7. refuse branch/path collisions instead of reusing an unrelated worktree.
+
+If bootstrap cannot provide the GC script, do not run a broad deletion command.
+For each candidate separately, fetch with prune, confirm its upstream is
+`[gone]`, verify `gh pr view <branch> --json state,headRefOid` reports `MERGED`
+with a head SHA equal to the local branch, and require its worktree to be clean
+before removing that worktree and branch. It is safe to leave uncertain candidates behind and continue the new task.
 
 Create the isolated worktree from the resolved base before creating the task:
 
@@ -393,6 +412,11 @@ Run only `create` here — do not also run `start`. `start` flips status to `in_
 Skip when the coordinating session already holds a verified absolute task path and worktree path for this task. Do not use the base worktree's `task.py current --source` as the cross-worktree test.
 
 #### 1.1 Requirement exploration `[required · repeatable]`
+
+If `.trellis/spec/guides/architecture-baseline.md` exists, read it before
+producing the plan. The plan must state in one line whether the task keeps,
+advances, or deviates from the baseline. A deviation requires a Decision Log
+row in that file.
 
 Load the `trellis-brainstorm` skill and explore requirements interactively with the user per the skill's guidance.
 
@@ -658,6 +682,11 @@ Load the `trellis-update-spec` skill and review whether this task produced new k
 
 Update the docs under `.trellis/spec/` accordingly. Even if the conclusion is "nothing to update", walk through the judgment.
 
+While updating specs, check `.trellis/spec/guides/architecture-baseline.md`.
+If the task changed a recorded module boundary, dependency direction, or data
+flow, append one Decision Log row with date, decision, alternatives, reason,
+and impact.
+
 #### 3.4 Commit changes `[required · once]`
 
 **Spec-sync preamble**: before drafting commits, ask: did this task fix a bug or surface non-obvious knowledge that should land in `.trellis/spec/` so future-you (or future-AI) doesn't repeat the mistake? If yes, return to Phase 3.3 first — spec writes belong in the same task's commit batch, not as a forgotten follow-up.
@@ -692,8 +721,10 @@ action in plain language.
 #### 3.5 Wrap-up reminder
 
 After step 3.4 succeeds, finish the authorized GitHub flow from the coordinating
-base worktree. Do not remove the task worktree during `after_archive`: archive
-happens before push, PR checks, and merge; lifecycle hook failures are non-blocking.
+base worktree. Do not remove the task worktree during `after_archive` with raw Git commands:
+archive happens before push, PR checks, and merge. The installed GC hook is safe
+because it verifies merged PR state and skips the current/main worktree, so at
+archive time it only clears older leftovers; lifecycle hook failures are non-blocking.
 
 1. push the captured task branch to its actual remote;
 2. create or reuse its pull request with `gh pr create`, targeting the recorded
@@ -709,9 +740,12 @@ happens before push, PR checks, and merge; lifecycle hook failures are non-block
    fast-forward it from its upstream;
 7. verify the PR is merged and the remote task branch is absent, then require
    the task worktree to be clean;
-8. from the base worktree run `git worktree remove <absolute-worktree-path>`,
-   delete the local task branch (a verified squash-merged branch may require
-   `git branch -D <task-branch>`), and run `git worktree prune`;
+8. from the base worktree run `python3 scripts/trellis_gc.py --apply` and
+   confirm this task's worktree and local branch are gone. If the script is
+   unavailable, use the already captured task path and branch only: re-confirm
+   the PR is merged, its head SHA equals the local branch, and the worktree is
+   clean, then run `git worktree remove <absolute-worktree-path>`,
+   `git branch -D <task-branch>`, and `git worktree prune`;
 9. audit `git status --porcelain --untracked-files=all`, current branch,
    `git worktree list`, and remote refs;
 10. report the merge, checks, cleanup, and any residual state in plain language.
