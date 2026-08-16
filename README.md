@@ -63,7 +63,7 @@ skips the current and main worktrees, so it only clears older leftovers.
 ```bash
 trellis init --yes --user <name> --codex \
   --workflow solo-github-flow \
-  --workflow-source gh:kakamisamas/trellis-personal-marketplace#v1.2.0
+  --workflow-source gh:kakamisamas/trellis-personal-marketplace#v1.2.1
 ```
 
 Select the platform flags your project actually uses; `--codex` is only an
@@ -75,10 +75,10 @@ List the remote templates, then switch:
 
 ```bash
 trellis workflow --list \
-  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.2.0
+  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.2.1
 
 trellis workflow \
-  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.2.0 \
+  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.2.1 \
   --template solo-github-flow
 ```
 
@@ -86,7 +86,7 @@ If `.trellis/workflow.md` has local edits, preview the replacement first:
 
 ```bash
 trellis workflow \
-  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.2.0 \
+  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.2.1 \
   --template solo-github-flow \
   --create-new
 ```
@@ -100,8 +100,8 @@ From the target repository root, preview and then apply the release-pinned
 installer:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.2.0/scripts/setup.sh) --dry-run
-bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.2.0/scripts/setup.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.2.1/scripts/setup.sh) --dry-run
+bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.2.1/scripts/setup.sh)
 ```
 
 The installer manages four targets:
@@ -169,7 +169,7 @@ trellis init --registry gh:kakamisamas/trellis-spec-marketplace#v1.0.0 \
 ## Update and rollback
 
 Remote workflow and tooling updates are not applied silently. For a later
-release, replace `v1.2.0` with the new immutable tag, preview the workflow with
+release, replace `v1.2.1` with the new immutable tag, preview the workflow with
 `--create-new`, review the installer dry-run and diffs, then switch deliberately.
 
 To return to Trellis's bundled workflow:
