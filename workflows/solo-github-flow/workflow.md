@@ -346,7 +346,7 @@ Before changing files:
 1. verify `scripts/trellis_gc.py`, `.github/workflows/pr-gate.yml`, the
    `hooks.after_archive` GC command, and the `trellis-setup` skill are installed;
    if any is missing, run
-   `bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.1.0/scripts/setup.sh)`
+   `bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.2.0/scripts/setup.sh)`
    once from the repository root and review its report;
 2. from the coordinating base worktree run
    `python3 scripts/trellis_gc.py --apply` to remove clean leftovers whose
@@ -375,6 +375,26 @@ Create the isolated worktree from the resolved base before creating the task:
 git worktree add "../<repo>-wt/<MM-DD-slug>" \
   -b "task/<MM-DD-slug>" "<base>"
 ```
+
+CodeGraph indexes are worktree-local. If the coordinating base worktree is
+already CodeGraph-enabled, initialize a separate index in the new task worktree
+before creating the task:
+
+```bash
+if [[ -d "<absolute-base-worktree>/.codegraph" ]]; then
+  command -v codegraph >/dev/null 2>&1 || {
+    printf '[ERROR] CodeGraph is enabled in the base worktree but its CLI is unavailable\n' >&2
+    exit 1
+  }
+  codegraph init "<absolute-worktree-path>"
+  codegraph status "<absolute-worktree-path>"
+fi
+```
+
+Stop before `task.py create` if initialization or status verification fails.
+Keep the worktree for repair and resume this step after CodeGraph is healthy.
+Do not copy or symlink `.codegraph/` from the coordinating worktree: its index
+is bound to that worktree's absolute path and checked-out content.
 
 Inside the new worktree, initialize the same developer identity because
 `.trellis/.developer` and `.trellis/.runtime/` are gitignored and worktree-local.

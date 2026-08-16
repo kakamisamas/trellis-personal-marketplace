@@ -123,6 +123,10 @@ class MarketplaceContractTests(unittest.TestCase):
             "Active task: <absolute task path>",
             "Workdir: <absolute task worktree path>",
             "only inside `Workdir`",
+            '[[ -d "<absolute-base-worktree>/.codegraph" ]]',
+            'codegraph init "<absolute-worktree-path>"',
+            'codegraph status "<absolute-worktree-path>"',
+            "Do not copy or symlink `.codegraph/`",
             "Do not remove the task worktree during `after_archive`",
             "lifecycle hook failures are non-blocking",
         )
@@ -134,16 +138,18 @@ class MarketplaceContractTests(unittest.TestCase):
         phase_two = self.workflow.index("#### 2.1 Implement")
         phase_three = self.workflow.index("#### 3.5 Wrap-up reminder")
         worktree_add = self.workflow.index("git worktree add", phase_one, phase_two)
-        task_create = self.workflow.index("task.py create", worktree_add, phase_two)
+        codegraph_init = self.workflow.index("codegraph init", worktree_add, phase_two)
+        task_create = self.workflow.index("task.py create", codegraph_init, phase_two)
         merge = self.workflow.index("gh pr merge", phase_three)
         worktree_remove = self.workflow.index("git worktree remove", merge)
 
-        self.assertLess(worktree_add, task_create)
+        self.assertLess(worktree_add, codegraph_init)
+        self.assertLess(codegraph_init, task_create)
         self.assertLess(merge, worktree_remove)
 
     def test_gc_baseline_and_breadcrumb_contracts_are_explicit(self) -> None:
         required = (
-            "trellis-personal-marketplace/v1.1.0/scripts/setup.sh",
+            "trellis-personal-marketplace/v1.2.0/scripts/setup.sh",
             "python3 scripts/trellis_gc.py --apply",
             ".trellis/spec/guides/architecture-baseline.md",
             "Decision Log",
@@ -243,7 +249,7 @@ class MarketplaceContractTests(unittest.TestCase):
             "does not copy companion scripts or `.trellis/config.yaml`",
             "Do not attach raw",
             "after_archive",
-            "v1.1.0/scripts/setup.sh",
+            "v1.2.0/scripts/setup.sh",
             "trellis-spec-marketplace#v1.0.0",
             "no `--force` mode",
             "hook CWD",
@@ -273,7 +279,7 @@ class MarketplaceContractTests(unittest.TestCase):
     def test_release_assets_and_license_are_present(self) -> None:
         self.assertTrue(SETUP.is_file())
         self.assertTrue(GC.is_file())
-        self.assertIn('RELEASE_REF="v1.1.0"', SETUP.read_text(encoding="utf-8"))
+        self.assertIn('RELEASE_REF="v1.2.0"', SETUP.read_text(encoding="utf-8"))
         self.assertIn("MIT License", LICENSE.read_text(encoding="utf-8"))
 
     def test_public_source_has_no_personal_project_paths(self) -> None:

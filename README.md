@@ -31,6 +31,9 @@ authoritative.
 - Phase 1.0 creates `../<repo>-wt/<MM-DD-slug>` on
   `task/<MM-DD-slug>`, initializes the worktree-local Trellis developer state,
   then creates the task inside that worktree.
+- If the coordinating worktree already has a `.codegraph/` index, Phase 1.0
+  initializes and verifies an independent CodeGraph index in the task worktree
+  before task creation. It never copies or symlinks the base index.
 - Implement/check dispatch prompts begin with absolute `Active task:` and
   `Workdir:` lines. Agents may operate only inside that worktree.
 - Phase 3.5 removes the worktree and local task branch only after the squash
@@ -49,6 +52,8 @@ skips the current and main worktrees, so it only clears older leftovers.
 - Git with `git worktree` support
 - an authenticated GitHub CLI (`gh`) for normal GC verification and PR finish
 - a GitHub repository whose pull requests publish at least one check result
+- optional CodeGraph CLI; it becomes required for task worktree creation when
+  the coordinating worktree already contains `.codegraph/`
 - optional Open Code Review 1.9.4 or later (`ocr`) plus Git 2.41 or later for
   local AI review; missing or unconfigured OCR is recorded but does not block
   the workflow
@@ -58,7 +63,7 @@ skips the current and main worktrees, so it only clears older leftovers.
 ```bash
 trellis init --yes --user <name> --codex \
   --workflow solo-github-flow \
-  --workflow-source gh:kakamisamas/trellis-personal-marketplace#v1.1.0
+  --workflow-source gh:kakamisamas/trellis-personal-marketplace#v1.2.0
 ```
 
 Select the platform flags your project actually uses; `--codex` is only an
@@ -70,10 +75,10 @@ List the remote templates, then switch:
 
 ```bash
 trellis workflow --list \
-  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.1.0
+  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.2.0
 
 trellis workflow \
-  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.1.0 \
+  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.2.0 \
   --template solo-github-flow
 ```
 
@@ -81,7 +86,7 @@ If `.trellis/workflow.md` has local edits, preview the replacement first:
 
 ```bash
 trellis workflow \
-  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.1.0 \
+  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.2.0 \
   --template solo-github-flow \
   --create-new
 ```
@@ -95,8 +100,8 @@ From the target repository root, preview and then apply the release-pinned
 installer:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.1.0/scripts/setup.sh) --dry-run
-bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.1.0/scripts/setup.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.2.0/scripts/setup.sh) --dry-run
+bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.2.0/scripts/setup.sh)
 ```
 
 The installer manages four targets:
@@ -164,7 +169,7 @@ trellis init --registry gh:kakamisamas/trellis-spec-marketplace#v1.0.0 \
 ## Update and rollback
 
 Remote workflow and tooling updates are not applied silently. For a later
-release, replace `v1.1.0` with the new immutable tag, preview the workflow with
+release, replace `v1.2.0` with the new immutable tag, preview the workflow with
 `--create-new`, review the installer dry-run and diffs, then switch deliberately.
 
 To return to Trellis's bundled workflow:
