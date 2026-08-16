@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-readonly RELEASE_REF="v1.1.0"
+readonly RELEASE_REF="v1.2.0"
 readonly RAW_BASE="https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/${RELEASE_REF}"
 readonly LOCAL_ASSET_ROOT="${TRELLIS_SETUP_ASSET_ROOT:-}"
 readonly HOOK_COMMAND='python3 scripts/trellis_gc.py --apply'
