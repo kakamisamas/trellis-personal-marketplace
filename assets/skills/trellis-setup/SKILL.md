@@ -16,7 +16,7 @@ Confirm which of these project assets are absent or outdated:
 Run the release-pinned bootstrap from the repository root:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.1.0/scripts/setup.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.2.1/scripts/setup.sh)
 ```
 
 Read the complete report. Do not overwrite an existing PR gate or skill when setup

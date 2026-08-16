@@ -346,7 +346,7 @@ Before changing files:
 1. verify `scripts/trellis_gc.py`, `.github/workflows/pr-gate.yml`, the
    `hooks.after_archive` GC command, and the `trellis-setup` skill are installed;
    if any is missing, run
-   `bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.2.0/scripts/setup.sh)`
+   `bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.2.1/scripts/setup.sh)`
    once from the repository root and review its report;
 2. from the coordinating base worktree run
    `python3 scripts/trellis_gc.py --apply` to remove clean leftovers whose

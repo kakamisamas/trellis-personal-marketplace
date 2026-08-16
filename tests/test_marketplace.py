@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -11,6 +12,7 @@ INDEX = ROOT / "index.json"
 WORKFLOW = ROOT / "workflows" / "solo-github-flow" / "workflow.md"
 CI = ROOT / ".github" / "workflows" / "ci.yml"
 SETUP = ROOT / "scripts" / "setup.sh"
+SETUP_SKILL = ROOT / "assets" / "skills" / "trellis-setup" / "SKILL.md"
 GC = ROOT / "scripts" / "trellis_gc.py"
 LICENSE = ROOT / "LICENSE"
 NATIVE_0612_SHA256 = "e2c5ab7004ff83a5a804b50df81746aa1d558dd4480463287622605f86a82a76"
@@ -149,7 +151,7 @@ class MarketplaceContractTests(unittest.TestCase):
 
     def test_gc_baseline_and_breadcrumb_contracts_are_explicit(self) -> None:
         required = (
-            "trellis-personal-marketplace/v1.2.0/scripts/setup.sh",
+            "trellis-personal-marketplace/v1.2.1/scripts/setup.sh",
             "python3 scripts/trellis_gc.py --apply",
             ".trellis/spec/guides/architecture-baseline.md",
             "Decision Log",
@@ -249,7 +251,7 @@ class MarketplaceContractTests(unittest.TestCase):
             "does not copy companion scripts or `.trellis/config.yaml`",
             "Do not attach raw",
             "after_archive",
-            "v1.2.0/scripts/setup.sh",
+            "v1.2.1/scripts/setup.sh",
             "trellis-spec-marketplace#v1.0.0",
             "no `--force` mode",
             "hook CWD",
@@ -279,8 +281,25 @@ class MarketplaceContractTests(unittest.TestCase):
     def test_release_assets_and_license_are_present(self) -> None:
         self.assertTrue(SETUP.is_file())
         self.assertTrue(GC.is_file())
-        self.assertIn('RELEASE_REF="v1.2.0"', SETUP.read_text(encoding="utf-8"))
+        self.assertIn('RELEASE_REF="v1.2.1"', SETUP.read_text(encoding="utf-8"))
         self.assertIn("MIT License", LICENSE.read_text(encoding="utf-8"))
+
+    def test_release_references_stay_aligned(self) -> None:
+        setup = SETUP.read_text(encoding="utf-8")
+        match = re.search(r'^readonly RELEASE_REF="([^"]+)"$', setup, re.MULTILINE)
+        self.assertIsNotNone(match)
+        release_ref = match.group(1)
+        setup_url = (
+            "https://raw.githubusercontent.com/kakamisamas/"
+            f"trellis-personal-marketplace/{release_ref}/scripts/setup.sh"
+        )
+        for path in (ROOT / "README.md", WORKFLOW, SETUP_SKILL):
+            with self.subTest(path=path):
+                self.assertIn(setup_url, path.read_text(encoding="utf-8"))
+        self.assertIn(
+            f"gh:kakamisamas/trellis-personal-marketplace#{release_ref}",
+            (ROOT / "README.md").read_text(encoding="utf-8"),
+        )
 
     def test_public_source_has_no_personal_project_paths(self) -> None:
         forbidden = (
