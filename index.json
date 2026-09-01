@@ -19,6 +19,18 @@
         "ci",
         "squash"
       ]
+    },
+    {
+      "id": "solo-baseline",
+      "type": "spec",
+      "name": "Solo Architecture Baseline",
+      "description": "A compact current-state architecture baseline with verifiable targets, risk gaps, and ADR-lite decisions.",
+      "path": "specs/solo-baseline",
+      "tags": [
+        "solo",
+        "architecture",
+        "baseline"
+      ]
     }
   ]
 }

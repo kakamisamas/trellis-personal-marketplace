@@ -146,7 +146,7 @@ python3 ./.trellis/scripts/get_context.py --mode phase --step <X.Y>  # detailed 
 
 ```
 Phase 1: Plan    → classify, get task-creation consent, then write planning artifacts
-Phase 2: Execute → implement only after task status is in_progress
+Phase 2: Execute → implement only after task status is in_progress; use one red test → green implementation → refactor slice per behavior
 Phase 3: Finish  → verify, update spec, report, then finish through GitHub after approval
 ```
 
@@ -203,6 +203,7 @@ After consent and before creating a task worktree, bootstrap missing solo-github
 [workflow-state:planning]
 Load `trellis-brainstorm`; stay in planning.
 Lightweight: `prd.md` can be enough. Complex: finish `prd.md`, `design.md`, and `implement.md`; ask for review before `task.py start`.
+TDD planning gate: record observable behavior slices, the public interface under test, and mock boundaries before `task.py start`.
 If `.trellis/spec/guides/architecture-baseline.md` exists, read it before planning and state whether the task keeps, advances, or deviates from it.
 When presenting the plan, pair each technical action with the plain-language function or result it delivers.
 Keep all planning files and commands inside the task's recorded worktree. The base worktree coordinates by absolute task/worktree paths and stays on the base branch.
@@ -219,6 +220,7 @@ Sub-agent mode: curate `implement.jsonl` and `check.jsonl` as spec/research mani
 [workflow-state:planning-inline]
 Load `trellis-brainstorm`; stay in planning.
 Lightweight: `prd.md` can be enough. Complex: finish `prd.md`, `design.md`, and `implement.md`; ask for review before `task.py start`.
+TDD planning gate: record observable behavior slices, the public interface under test, and mock boundaries before `task.py start`.
 If `.trellis/spec/guides/architecture-baseline.md` exists, read it before planning and state whether the task keeps, advances, or deviates from it.
 When presenting the plan, pair each technical action with the plain-language function or result it delivers.
 Keep all planning files and commands inside the task's recorded worktree. The base worktree coordinates by absolute task/worktree paths and stays on the base branch.
@@ -248,7 +250,8 @@ The sub-agent may read and modify files and run commands only inside `Workdir`. 
 
 [workflow-state:in_progress]
 Tools: `trellis-implement` / `trellis-research` are sub-agent types only (Task/Agent tool, NOT Skill; there is no skill by these names). `trellis-update-spec` is a skill. `trellis-check` exists as both; prefer the Agent form when verifying after code changes.
-Flow: `trellis-implement` -> `trellis-check` -> final Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
+Flow: `trellis-implement` (one behavior at a time: red test -> green implementation -> refactor while green) -> `trellis-check` -> final Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
+Line budget: 2500 changed lines for this task (CI hard limit 3500). After each behavior slice, report the cumulative changed-line count. If approaching the budget, finish and open the PR first; remaining work becomes a new subtask.
 A final Phase 2.2 is not green until every OCR comment is fixed or rejected with verifiable evidence, or an unavailable/partial/failed review is recorded for the PR body. OCR runs exactly once: never use `--resume` and never start a re-review after fixes.
 During Phase 3.3, update the architecture baseline Decision Log when module boundaries, dependency direction, or recorded data flow changed. During Phase 3.5, use `scripts/trellis_gc.py --apply` for verified cleanup.
 Main-session default: dispatch implement/check sub-agents into the task's recorded worktree. Sub-agent self-exemption: if already running as `trellis-implement`, do NOT spawn another `trellis-implement` or `trellis-check`; if already running as `trellis-check`, do NOT spawn another `trellis-check` or `trellis-implement`. Dispatch is main session only.
@@ -261,7 +264,7 @@ Dispatch prompt starts with absolute `Active task:` and `Workdir:` lines. Only c
      instead of dispatching sub-agents. -->
 
 [workflow-state:in_progress-inline]
-Flow: `trellis-before-dev` -> edit -> `trellis-check` -> validation -> final Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
+Flow: `trellis-before-dev` -> choose one behavior -> red test -> green implementation -> refactor while green -> `trellis-check` -> validation -> final Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
 A final Phase 2.2 is not green until every OCR comment is fixed or rejected with verifiable evidence, or an unavailable/partial/failed review is recorded for the PR body. OCR runs exactly once: never use `--resume` and never start a re-review after fixes.
 During Phase 3.3, update the architecture baseline Decision Log when module boundaries, dependency direction, or recorded data flow changed. During Phase 3.5, use `scripts/trellis_gc.py --apply` for verified cleanup.
 Do not dispatch implement/check sub-agents in inline mode.
@@ -343,10 +346,10 @@ Goal: classify the request, get task-creation consent when a task is needed, and
 Create the task worktree, branch, and task directory only after task-creation consent. The coordinating worktree stays checked out on the base branch and is used only for planning, acceptance, merge, and cleanup.
 Before changing files:
 
-1. verify `scripts/trellis_gc.py`, `.github/workflows/pr-gate.yml`, the
-   `hooks.after_archive` GC command, and the `trellis-setup` skill are installed;
+1. verify `scripts/trellis_gc.py`, `.github/workflows/pr-gate.yml`, and the
+   `trellis-setup` skill are installed;
    if any is missing, run
-   `bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.2.1/scripts/setup.sh)`
+   `bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.3.0/scripts/setup.sh)`
    once from the repository root and review its report;
 2. from the coordinating base worktree run
    `python3 scripts/trellis_gc.py --apply` to remove clean leftovers whose
@@ -449,7 +452,9 @@ The brainstorm skill will guide you to:
 - Update `prd.md` immediately after each user answer
 - Split large scopes into a parent task plus child tasks when the deliverables can be verified independently
 - Keep `prd.md` focused on requirements and acceptance criteria
+- Capture behavior slices: public interface, input/action, expected outcome, and boundary to mock or avoid mocking
 - For complex tasks, produce `design.md` and `implement.md` before implementation starts
+- For each implementation subtask in `implement.md`, write an estimated changed-line count
 
 When considering a parent/child split:
 - Use a parent task when one request contains several independently verifiable deliverables.
@@ -458,7 +463,7 @@ When considering a parent/child split:
 - Parent/child structure is not a dependency system. If child B depends on child A, write that ordering in child B's `prd.md` / `implement.md`.
 - Start the child task that owns the next deliverable. Do not start the parent unless the parent itself has direct implementation work.
 
-Return to this step whenever requirements change and revise the relevant artifact.
+Return to this step whenever requirements change and revise the relevant artifact. Do not start implementation until at least the first behavior slice is concrete enough to write a failing test.
 
 #### 1.2 Research `[optional · repeatable]`
 
@@ -574,6 +579,7 @@ available.
 | `research/` has artifacts (complex tasks) | recommended |
 | `design.md` exists (complex tasks) | ✅ |
 | `implement.md` exists (complex tasks) | ✅ |
+| Each implementation subtask in `implement.md` has an estimated changed-line count at or below 2500 (CI hard limit 3500); split during planning if over | ✅ |
 
 [Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
 
@@ -589,12 +595,31 @@ Goal: turn reviewed planning artifacts into code that passes quality checks.
 
 #### 2.1 Implement `[required · repeatable]`
 
+Run one behavior slice at a time. Do not write all tests first and do not implement multiple behaviors before seeing a failing test.
+
+For each behavior:
+
+1. Pick the next behavior from `prd.md` or `implement.md`.
+2. Identify the public interface to test. Prefer the smallest user-facing or module-facing boundary that expresses the behavior.
+3. Write one failing test that describes the expected behavior. The test must fail for the right reason before implementation starts.
+4. Implement the smallest code path that makes that test pass.
+5. Run the focused test. If it fails, fix the implementation or the test contract, then rerun.
+6. When green, refactor only if the code needs it. Re-run the focused test after each refactor.
+7. Mark the behavior as done in `implement.md` or the task notes, then move to the next behavior.
+
+Testing rules:
+
+- Test public behavior, not private methods or internal call order.
+- Mock only system boundaries: network, time, randomness, file system, subprocesses, or external services.
+- Prefer dependency injection for boundary collaborators.
+- Keep tests readable as executable requirements.
+
 [Claude Code, Cursor, OpenCode, codex-sub-agent, CodeBuddy, Droid, Pi, ZCode, Snow, Oh My Pi]
 
 Spawn the implement sub-agent:
 
 - **Agent type**: `trellis-implement`
-- **Task description**: Implement the reviewed task artifacts, consulting materials under `{TASK_DIR}/research/`; finish by running project lint and type-check
+- **Task description**: Implement the reviewed task artifacts using one behavior slice at a time: red test through a public interface, green implementation, refactor only while green; consult materials under `{TASK_DIR}/research/`; finish by running focused tests plus project lint and type-check
 - **Dispatch prompt guard**: The prompt MUST start with `Active task: <absolute task path>` and `Workdir: <absolute worktree path>` on separate lines, then tell the spawned agent it may operate only inside `Workdir`, is already the `trellis-implement` sub-agent, and must implement directly, not spawn another `trellis-implement` / `trellis-check`.
 
 The platform hook/plugin auto-handles:
@@ -609,7 +634,7 @@ The platform hook/plugin auto-handles:
 Spawn the implement sub-agent:
 
 - **Agent type**: `trellis-implement`
-- **Task description**: Implement the reviewed task artifacts, consulting materials under `{TASK_DIR}/research/`; finish by running project lint and type-check
+- **Task description**: Implement the reviewed task artifacts using one behavior slice at a time: red test through a public interface, green implementation, refactor only while green; consult materials under `{TASK_DIR}/research/`; finish by running focused tests plus project lint and type-check
 - **Dispatch prompt guard**: The prompt MUST start with `Active task: <absolute task path>` and `Workdir: <absolute worktree path>` on separate lines, then explicitly limit all operations to `Workdir` and say the spawned agent is already `trellis-implement` and must implement directly without spawning another `trellis-implement` / `trellis-check`.
 
 The pull-based sub-agent definition auto-handles the context load requirement:
@@ -623,7 +648,7 @@ The pull-based sub-agent definition auto-handles the context load requirement:
 Spawn the implement sub-agent:
 
 - **Agent type**: `trellis-implement`
-- **Task description**: Implement the reviewed task artifacts, consulting materials under `{TASK_DIR}/research/`; finish by running project lint and type-check
+- **Task description**: Implement the reviewed task artifacts using one behavior slice at a time: red test through a public interface, green implementation, refactor only while green; consult materials under `{TASK_DIR}/research/`; finish by running focused tests plus project lint and type-check
 - **Dispatch prompt guard**: Start with `Active task: <absolute task path>` and `Workdir: <absolute worktree path>` on separate lines; restrict all operations to `Workdir`; tell the spawned agent it is already the `trellis-implement` sub-agent and must implement directly, not spawn another `trellis-implement` / `trellis-check`.
 
 The platform prelude auto-handles the context load requirement:
@@ -656,6 +681,8 @@ Spawn the check sub-agent:
 The check agent's job:
 - Review code changes against specs
 - Review code changes against `prd.md`, `design.md` if present, and `implement.md` if present
+- Verify each completed behavior has a test that fails without the implementation and passes through a public interface
+- Verify mocks are limited to system boundaries and not internal implementation details
 - Auto-fix issues it finds
 - Run lint and typecheck to verify
 
@@ -671,6 +698,12 @@ From the task's recorded worktree, load the `trellis-check` skill and verify the
 If issues are found → fix → re-check, until green.
 
 [/codex-inline, Kilo, Antigravity, Devin]
+
+Report the cumulative changed-line count from the task worktree:
+
+```bash
+git diff --numstat <base-branch>...HEAD -- . ':(exclude)*.lock' ':(exclude)*-lock.*' | awk '$1!="-"{a+=$1+$2} END{print a+0}'
+```
 
 **Final pass (before Phase 3.4 commit)**: the last 2.2 of a task must run full-scope, not just on the latest implement chunk. List all affected packages with `python3 ./.trellis/scripts/get_context.py --mode packages`, then load each package's spec index Quality Check section. This catches cross-layer / multi-package issues a mid-iteration local 2.2 cannot.
 
@@ -691,7 +724,7 @@ After that full-scope check and its tests are green, the main session runs one l
 #### 2.3 Rollback `[on demand]`
 
 - `check` reveals a prd defect → return to Phase 1, fix `prd.md`, then redo 2.1
-- Implementation went wrong → revert code, redo 2.1
+- Implementation went wrong → revert the current behavior slice, redo 2.1 from the failing test
 - Need more research → research (same as Phase 1.2), write findings into `research/`
 
 ---
@@ -757,10 +790,7 @@ action in plain language.
 #### 3.5 Wrap-up reminder
 
 After step 3.4 succeeds, finish the authorized GitHub flow from the coordinating
-base worktree. Do not remove the task worktree during `after_archive` with raw Git commands:
-archive happens before push, PR checks, and merge. The installed GC hook is safe
-because it verifies merged PR state and skips the current/main worktree, so at
-archive time it only clears older leftovers; lifecycle hook failures are non-blocking.
+base worktree; lifecycle hook failures are non-blocking.
 
 1. push the captured task branch to its actual remote;
 2. create or reuse its pull request with `gh pr create`, targeting the recorded
@@ -791,8 +821,9 @@ archive time it only clears older leftovers; lifecycle hook failures are non-blo
    | `<path:line>` | `<fixed|rejected>` | `<verifiable reason or validation>` |
    <!-- trellis-ocr:end -->
    ```
-4. prove that at least one check exists, then wait with
-   `gh pr checks --watch --fail-fast`; no checks is not green;
+4. prove that at least one check exists that actually runs the project's
+   test suite, then wait with `gh pr checks --watch --fail-fast`; no checks
+   is not green, and a size/line-count gate alone is not green;
 5. re-read the PR state, head/base, discussions or review requirements,
    mergeability, and head SHA;
 6. when every repository gate is satisfied, run

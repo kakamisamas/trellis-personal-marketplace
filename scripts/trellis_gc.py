@@ -26,6 +26,7 @@ class Candidate:
     branch: str
     worktree: str | None
     verified: bool
+    force_remove: bool = False
 
 
 def run(args: Sequence[str], cwd: str | Path | None = None) -> CommandResult:
@@ -36,6 +37,33 @@ def run(args: Sequence[str], cwd: str | Path | None = None) -> CommandResult:
 def fail(message: str) -> int:
     print(f"[ERROR] {message}", file=sys.stderr)
     return 1
+
+
+def preview_status(output: str, *, max_lines: int = 12) -> str:
+    lines = output.splitlines()
+    if not lines:
+        return output
+    preview = lines[:max_lines]
+    text = "\n".join(preview)
+    extra = len(lines) - len(preview)
+    if extra > 0:
+        text += f"\n... ({extra} more lines)"
+    return text
+
+
+def dirty_skip_reason(worktree: str, status: CommandResult) -> str:
+    detail = status.stdout or status.stderr or "unreadable"
+    return f"worktree dirty or unreadable: {worktree}\n{preview_status(detail)}"
+
+
+def remove_empty_worktree_parent(worktree: str) -> None:
+    parent = os.path.dirname(os.path.abspath(worktree.rstrip(os.sep)))
+    if not os.path.basename(parent).endswith("-wt"):
+        return
+    try:
+        os.rmdir(parent)
+    except OSError:
+        return
 
 
 def parse_worktrees(output: str) -> tuple[dict[str, str], str | None]:
@@ -81,6 +109,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--force-gone",
         action="store_true",
         help="allow deletion from upstream [gone] without a matching merged PR head",
+    )
+    parser.add_argument(
+        "--force-dirty",
+        action="store_true",
+        help="remove a dirty worktree when the merged PR head matches local HEAD",
     )
     args = parser.parse_args(argv)
 
@@ -174,8 +207,14 @@ def main(argv: Sequence[str] | None = None) -> int:
                 skipped.append((branch, "checked out in the worktree running GC"))
                 continue
             status = run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=worktree)
-            if status.returncode != 0 or status.stdout:
-                skipped.append((branch, f"worktree dirty or unreadable: {worktree}"))
+            if status.returncode != 0:
+                skipped.append((branch, dirty_skip_reason(worktree, status)))
+                continue
+            if status.stdout:
+                if not (args.force_dirty and verified):
+                    skipped.append((branch, dirty_skip_reason(worktree, status)))
+                    continue
+                planned.append(Candidate(branch, worktree, verified, force_remove=True))
                 continue
 
         planned.append(Candidate(branch, worktree, verified))
@@ -195,10 +234,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             continue
 
         if candidate.worktree:
-            removed = run(["git", "worktree", "remove", candidate.worktree], cwd=root)
+            remove_args = ["git", "worktree", "remove"]
+            if candidate.force_remove:
+                remove_args.append("--force")
+            remove_args.append(candidate.worktree)
+            removed = run(remove_args, cwd=root)
             if removed.returncode != 0:
                 print(f"[WARN] failed to remove worktree {candidate.worktree}: {removed.stderr}")
                 continue
+            remove_empty_worktree_parent(candidate.worktree)
         deleted = run(["git", "branch", "-D", candidate.branch], cwd=root)
         if deleted.returncode != 0:
             print(f"[WARN] failed to delete branch {candidate.branch}: {deleted.stderr}")

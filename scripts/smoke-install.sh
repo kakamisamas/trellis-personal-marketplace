@@ -44,7 +44,6 @@ fi
 )
 cmp "$ROOT/scripts/trellis_gc.py" "$temporary/scripts/trellis_gc.py"
 cmp "$ROOT/assets/ci/pr-gate.yml" "$temporary/.github/workflows/pr-gate.yml"
-grep -Fq 'python3 scripts/trellis_gc.py --apply' "$temporary/.trellis/config.yaml"
 
 phase_22_context=""
 for step in 1.0 1.4 2.1 2.2 3.3 3.4 3.5; do

@@ -1,6 +1,6 @@
 ---
 name: trellis-setup
-description: "Use when the project follows solo-github-flow but scripts/trellis_gc.py, .github/workflows/pr-gate.yml, the archive hook, this setup skill, or the local OCR readiness check is missing."
+description: "Use when the project follows solo-github-flow but scripts/trellis_gc.py, .github/workflows/pr-gate.yml, this setup skill, or the local OCR readiness check is missing."
 ---
 
 # Trellis Setup
@@ -9,14 +9,14 @@ Confirm which of these project assets are absent or outdated:
 
 - `scripts/trellis_gc.py`
 - `.github/workflows/pr-gate.yml`
-- `hooks.after_archive` in `.trellis/config.yaml`
+- a CI workflow that runs the project's test suite; if missing, install from `assets/ci/tests-python.yml`
 - `.agents/skills/trellis-setup/SKILL.md`
 - the warn-only local `ocr` CLI readiness check
 
 Run the release-pinned bootstrap from the repository root:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.2.1/scripts/setup.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.3.0/scripts/setup.sh)
 ```
 
 Read the complete report. Do not overwrite an existing PR gate or skill when setup

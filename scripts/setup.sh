@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-readonly RELEASE_REF="v1.2.1"
+readonly RELEASE_REF="v1.3.0"
 readonly RAW_BASE="https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/${RELEASE_REF}"
 readonly LOCAL_ASSET_ROOT="${TRELLIS_SETUP_ASSET_ROOT:-}"
-readonly HOOK_COMMAND='python3 scripts/trellis_gc.py --apply'
 
 dry_run=false
 if [[ "${1:-}" == "--dry-run" ]]; then
@@ -62,7 +61,6 @@ fetch_asset() {
 
 assets=(
   scripts/trellis_gc.py
-  scripts/merge_hook.py
   assets/ci/pr-gate.yml
   assets/skills/trellis-setup/SKILL.md
 )
@@ -129,17 +127,6 @@ install_conservative() {
 install_replaceable "${temporary}/scripts/trellis_gc.py" "${repo_root}/scripts/trellis_gc.py"
 install_conservative "${temporary}/assets/ci/pr-gate.yml" "${repo_root}/.github/workflows/pr-gate.yml"
 
-merge_args=("${temporary}/scripts/merge_hook.py" "${repo_root}/.trellis/config.yaml" --repo-root "$repo_root")
-$dry_run && merge_args+=(--dry-run)
-python3 "${merge_args[@]}"
-merge_status=$?
-if [[ $merge_status -eq 2 ]]; then
-  partial=true
-elif [[ $merge_status -ne 0 ]]; then
-  printf '[ERROR] archive hook installation failed\n' >&2
-  exit 1
-fi
-
 skill_source="${temporary}/assets/skills/trellis-setup/SKILL.md"
 skill_roots=("${repo_root}/.agents/skills")
 platform_mappings=(
@@ -162,7 +149,7 @@ for skill_root in "${skill_roots[@]}"; do
   install_conservative "$skill_source" "${skill_root}/trellis-setup/SKILL.md"
 done
 
-printf '[REPORT] GC script, PR gate, archive hook, setup skill, and OCR CLI readiness checked for %s\n' "$repo_root"
+printf '[REPORT] GC script, PR gate, setup skill, and OCR CLI readiness checked for %s\n' "$repo_root"
 printf '[MANUAL] Enable automatic head-branch deletion and require the size-gate check in repository settings.\n'
 if $partial; then
   exit 2
