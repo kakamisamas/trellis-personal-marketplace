@@ -13,9 +13,6 @@ SETUP = ROOT / "scripts" / "setup.sh"
 
 
 PARSER_STUB = '''def parse_simple_yaml(content):
-    command = "python3 scripts/trellis_gc.py --apply"
-    if "hooks:" in content and "after_archive:" in content and command in content:
-        return {"hooks": {"after_archive": [command]}}
     return {}
 '''
 
@@ -88,7 +85,7 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((root / ".trellis" / "config.yaml").read_bytes(), before)
         self.assertFalse((root / "scripts" / "trellis_gc.py").exists())
-        for label in ("trellis_gc.py", "pr-gate.yml", "config.yaml", "trellis-setup/SKILL.md"):
+        for label in ("trellis_gc.py", "pr-gate.yml", "trellis-setup/SKILL.md"):
             self.assertIn(label, result.stdout)
 
     def test_install_and_second_run_are_idempotent(self) -> None:
@@ -100,12 +97,10 @@ class SetupTests(unittest.TestCase):
         self.assertTrue((root / ".github" / "workflows" / "pr-gate.yml").is_file())
         self.assertTrue((root / ".agents" / "skills" / "trellis-setup" / "SKILL.md").is_file())
         self.assertTrue((root / ".claude" / "skills" / "trellis-setup" / "SKILL.md").is_file())
-        self.assertIn("python3 scripts/trellis_gc.py --apply", (root / ".trellis" / "config.yaml").read_text())
 
         backup_count = len(list((root / ".trellis").glob("config.yaml.bak.*")))
         second = self.run_setup(root)
         self.assertEqual(second.returncode, 0, second.stderr)
-        self.assertIn("archive hook already installed", second.stdout)
         self.assertEqual(len(list((root / ".trellis").glob("config.yaml.bak.*"))), backup_count)
 
     def test_existing_gate_is_preserved_for_manual_review(self) -> None:
@@ -117,13 +112,6 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertEqual(gate.read_text(encoding="utf-8"), "name: customized\n")
         self.assertIn("[MANUAL]", result.stdout)
-
-    def test_unsupported_yaml_is_unchanged_and_returns_partial(self) -> None:
-        source = "hooks: {after_archive: []}\n"
-        root = self.make_repo(source)
-        result = self.run_setup(root)
-        self.assertEqual(result.returncode, 2)
-        self.assertEqual((root / ".trellis" / "config.yaml").read_text(), source)
 
     def test_missing_gh_is_only_a_warning(self) -> None:
         root = self.make_repo()

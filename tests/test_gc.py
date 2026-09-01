@@ -68,6 +68,7 @@ class FakeRunner:
             return result(0, self.dirty, "")
         if command in (
             ("git", "worktree", "remove", "/repo-wt/task-test"),
+            ("git", "worktree", "remove", "--force", "/repo-wt/task-test"),
             ("git", "branch", "-D", "task/test"),
             ("git", "worktree", "prune"),
         ):
@@ -106,7 +107,33 @@ class GarbageCollectorTests(unittest.TestCase):
         runner = FakeRunner(dirty=" M local.txt")
         _, stdout, _ = self.invoke(runner, "--apply", "--no-fetch")
         self.assertIn("worktree dirty or unreadable", stdout)
+        self.assertIn(" M local.txt", stdout)
         self.assertNotIn(("git", "branch", "-D", "task/test"), runner.calls)
+
+    def test_force_dirty_removes_verified_dirty_candidate(self) -> None:
+        runner = FakeRunner(dirty=" M .opencode/package.json")
+        code, stdout, _ = self.invoke(runner, "--apply", "--no-fetch", "--force-dirty")
+        self.assertEqual(code, 0)
+        self.assertIn("[DONE] removed worktree", stdout)
+        self.assertIn(
+            ("git", "worktree", "remove", "--force", "/repo-wt/task-test"),
+            runner.calls,
+        )
+        self.assertIn(("git", "branch", "-D", "task/test"), runner.calls)
+
+    def test_force_dirty_does_not_override_unverified(self) -> None:
+        runner = FakeRunner(
+            dirty=" M .opencode/package.json",
+            local_head="new-local",
+            pr_head="merged-head",
+        )
+        _, stdout, _ = self.invoke(runner, "--apply", "--no-fetch", "--force-dirty")
+        self.assertIn("differs from merged PR head", stdout)
+        self.assertNotIn(("git", "branch", "-D", "task/test"), runner.calls)
+        self.assertNotIn(
+            ("git", "worktree", "remove", "--force", "/repo-wt/task-test"),
+            runner.calls,
+        )
 
     def test_local_head_after_merge_is_retained(self) -> None:
         runner = FakeRunner(local_head="new-local", pr_head="merged-head")

@@ -26,8 +26,8 @@ class MarketplaceContractTests(unittest.TestCase):
 
     def test_registry_entry_is_a_safe_workflow_path(self) -> None:
         self.assertEqual(self.payload["version"], 1)
-        self.assertEqual(len(self.payload["templates"]), 1)
-        entry = self.payload["templates"][0]
+        self.assertEqual(len(self.payload["templates"]), 2)
+        entry = next(t for t in self.payload["templates"] if t["type"] == "workflow")
         self.assertEqual(entry["id"], "solo-github-flow")
         self.assertEqual(entry["type"], "workflow")
         self.assertNotIn("version", entry)
@@ -129,7 +129,6 @@ class MarketplaceContractTests(unittest.TestCase):
             'codegraph init "<absolute-worktree-path>"',
             'codegraph status "<absolute-worktree-path>"',
             "Do not copy or symlink `.codegraph/`",
-            "Do not remove the task worktree during `after_archive`",
             "lifecycle hook failures are non-blocking",
         )
         for phrase in required:
@@ -151,7 +150,7 @@ class MarketplaceContractTests(unittest.TestCase):
 
     def test_gc_baseline_and_breadcrumb_contracts_are_explicit(self) -> None:
         required = (
-            "trellis-personal-marketplace/v1.2.1/scripts/setup.sh",
+            "trellis-personal-marketplace/v1.3.0/scripts/setup.sh",
             "python3 scripts/trellis_gc.py --apply",
             ".trellis/spec/guides/architecture-baseline.md",
             "Decision Log",
@@ -250,8 +249,7 @@ class MarketplaceContractTests(unittest.TestCase):
             "downloads only `workflow.md`",
             "does not copy companion scripts or `.trellis/config.yaml`",
             "Do not attach raw",
-            "after_archive",
-            "v1.2.1/scripts/setup.sh",
+            "v1.3.0/scripts/setup.sh",
             "trellis-spec-marketplace#v1.0.0",
             "no `--force` mode",
             "hook CWD",
@@ -281,7 +279,7 @@ class MarketplaceContractTests(unittest.TestCase):
     def test_release_assets_and_license_are_present(self) -> None:
         self.assertTrue(SETUP.is_file())
         self.assertTrue(GC.is_file())
-        self.assertIn('RELEASE_REF="v1.2.1"', SETUP.read_text(encoding="utf-8"))
+        self.assertIn('RELEASE_REF="v1.3.0"', SETUP.read_text(encoding="utf-8"))
         self.assertIn("MIT License", LICENSE.read_text(encoding="utf-8"))
 
     def test_release_references_stay_aligned(self) -> None:
