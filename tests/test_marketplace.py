@@ -125,9 +125,10 @@ class MarketplaceContractTests(unittest.TestCase):
             "Active task: <absolute task path>",
             "Workdir: <absolute task worktree path>",
             "only inside `Workdir`",
-            '[[ -d "<absolute-base-worktree>/.codegraph" ]]',
-            'codegraph init "<absolute-worktree-path>"',
-            'codegraph status "<absolute-worktree-path>"',
+            "python3 scripts/trellis_codegraph.py prepare",
+            "--base-worktree",
+            "python3 scripts/trellis_diff.py --base",
+            "projectPath",
             "Do not copy or symlink `.codegraph/`",
             "lifecycle hook failures are non-blocking",
         )
@@ -139,18 +140,26 @@ class MarketplaceContractTests(unittest.TestCase):
         phase_two = self.workflow.index("#### 2.1 Implement")
         phase_three = self.workflow.index("#### 3.5 Wrap-up reminder")
         worktree_add = self.workflow.index("git worktree add", phase_one, phase_two)
-        codegraph_init = self.workflow.index("codegraph init", worktree_add, phase_two)
-        task_create = self.workflow.index("task.py create", codegraph_init, phase_two)
+        setup = self.workflow.index("v1.4.0/scripts/setup.sh", worktree_add, phase_two)
+        codegraph_prepare = self.workflow.index(
+            "trellis_codegraph.py prepare", setup, phase_two
+        )
+        task_create = self.workflow.index("task.py create", codegraph_prepare, phase_two)
         merge = self.workflow.index("gh pr merge", phase_three)
         worktree_remove = self.workflow.index("git worktree remove", merge)
 
-        self.assertLess(worktree_add, codegraph_init)
-        self.assertLess(codegraph_init, task_create)
+        self.assertLess(
+            self.workflow.index("before any install write", phase_one, worktree_add),
+            worktree_add,
+        )
+        self.assertLess(worktree_add, setup)
+        self.assertLess(setup, codegraph_prepare)
+        self.assertLess(codegraph_prepare, task_create)
         self.assertLess(merge, worktree_remove)
 
     def test_gc_baseline_and_breadcrumb_contracts_are_explicit(self) -> None:
         required = (
-            "trellis-personal-marketplace/v1.3.0/scripts/setup.sh",
+            "trellis-personal-marketplace/v1.4.0/scripts/setup.sh",
             "python3 scripts/trellis_gc.py --apply",
             ".trellis/spec/guides/architecture-baseline.md",
             "Decision Log",
@@ -164,13 +173,23 @@ class MarketplaceContractTests(unittest.TestCase):
         for state in ("planning", "planning-inline"):
             start = self.workflow.index(f"[workflow-state:{state}]")
             end = self.workflow.index(f"[/workflow-state:{state}]", start)
-            self.assertIn("architecture-baseline.md", self.workflow[start:end])
+            block = self.workflow[start:end]
+            self.assertIn("architecture-baseline.md", block)
+            self.assertIn("Test CI planning gate", block)
+            self.assertIn("unittest-only or non-Python", block)
         for state in ("in_progress", "in_progress-inline"):
             start = self.workflow.index(f"[workflow-state:{state}]")
             end = self.workflow.index(f"[/workflow-state:{state}]", start)
             block = self.workflow[start:end]
             self.assertIn("Decision Log", block)
             self.assertIn("trellis_gc.py --apply", block)
+            self.assertIn("trellis_codegraph.py sync", block)
+            self.assertIn("When CodeGraph was skipped, do not force the CLI", block)
+        no_task_start = self.workflow.index("[workflow-state:no_task]")
+        no_task_end = self.workflow.index("[/workflow-state:no_task]", no_task_start)
+        no_task = self.workflow[no_task_start:no_task_end]
+        self.assertIn("Do not install marketplace files into the coordinating worktree", no_task)
+        self.assertIn("bootstrap missing solo-github-flow tooling inside that task worktree", no_task)
 
         completed_start = self.workflow.index("\n[workflow-state:completed]\n") + 1
         completed_end = self.workflow.index("[/workflow-state:completed]", completed_start)
@@ -249,7 +268,7 @@ class MarketplaceContractTests(unittest.TestCase):
             "downloads only `workflow.md`",
             "does not copy companion scripts or `.trellis/config.yaml`",
             "Do not attach raw",
-            "v1.3.0/scripts/setup.sh",
+            "v1.4.0/scripts/setup.sh",
             "trellis-spec-marketplace#v1.0.0",
             "no `--force` mode",
             "hook CWD",
@@ -279,7 +298,7 @@ class MarketplaceContractTests(unittest.TestCase):
     def test_release_assets_and_license_are_present(self) -> None:
         self.assertTrue(SETUP.is_file())
         self.assertTrue(GC.is_file())
-        self.assertIn('RELEASE_REF="v1.3.0"', SETUP.read_text(encoding="utf-8"))
+        self.assertIn('RELEASE_REF="v1.4.0"', SETUP.read_text(encoding="utf-8"))
         self.assertIn("MIT License", LICENSE.read_text(encoding="utf-8"))
 
     def test_release_references_stay_aligned(self) -> None:
@@ -306,11 +325,52 @@ class MarketplaceContractTests(unittest.TestCase):
             "Ankicenter",
             "ARCHITECTURE.md",
         )
-        files = [INDEX, WORKFLOW, ROOT / "README.md", SETUP, GC]
+        files = [
+            INDEX,
+            WORKFLOW,
+            ROOT / "README.md",
+            SETUP,
+            GC,
+            ROOT / "scripts" / "trellis_codegraph.py",
+            ROOT / "scripts" / "trellis_diff.py",
+        ]
         content = "\n".join(path.read_text(encoding="utf-8") for path in files)
         for phrase in forbidden:
             with self.subTest(phrase=phrase):
                 self.assertNotIn(phrase, content)
+
+    def test_phase_15_and_readme_require_real_test_ci(self) -> None:
+        phase_15 = self.workflow.index("#### 1.5 Completion criteria")
+        phase_21 = self.workflow.index("#### 2.1 Implement")
+        block = self.workflow[phase_15:phase_21]
+        self.assertIn("actually runs the project's test suite", block)
+        self.assertIn("size/line-count gate alone is not enough", block)
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("Install the workflow and tooling from the same release", readme)
+        self.assertIn("task worktree", readme.lower())
+        self.assertIn("unittest-only or non-Python", readme)
+
+    def test_distributed_scripts_are_listed_in_setup_and_checklists(self) -> None:
+        setup = SETUP.read_text(encoding="utf-8")
+        skill = SETUP_SKILL.read_text(encoding="utf-8")
+        helpers = (
+            "scripts/trellis_gc.py",
+            "scripts/trellis_codegraph.py",
+            "scripts/trellis_diff.py",
+        )
+        for helper in helpers:
+            with self.subTest(helper=helper):
+                self.assertIn(helper, setup)
+                self.assertIn(helper, self.workflow)
+                self.assertIn(helper, skill)
+                self.assertIn(helper, (ROOT / "README.md").read_text(encoding="utf-8"))
+        self.assertIn("assets/ci/tests-python.yml", setup)
+        self.assertIn(".trellis/templates/ci/tests-python.yml", self.workflow)
+        self.assertIn(".trellis/templates/ci/tests-python.yml", skill)
+        self.assertIn("python3 scripts/trellis_diff.py --base", (ROOT / "assets" / "ci" / "pr-gate.yml").read_text(encoding="utf-8"))
+        match = re.search(r'^readonly RELEASE_REF="([^"]+)"$', setup, re.MULTILINE)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group(1), "v1.4.0")
 
 
 if __name__ == "__main__":

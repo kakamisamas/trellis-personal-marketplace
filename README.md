@@ -29,18 +29,24 @@ authoritative.
 - The main AI session keeps the coordinating worktree checked out on the base
   branch for planning, acceptance, merge, and cleanup.
 - Phase 1.0 creates `../<repo>-wt/<MM-DD-slug>` on
-  `task/<MM-DD-slug>`, initializes the worktree-local Trellis developer state,
-  then creates the task inside that worktree.
+  `task/<MM-DD-slug>` after a read-only coordinating-worktree check, runs
+  first-time setup inside that task worktree so the coordinating directory stays
+  clean, initializes the worktree-local Trellis developer state, then creates
+  the task inside that worktree.
 - If the coordinating worktree already has a `.codegraph/` index, Phase 1.0
-  initializes and verifies an independent CodeGraph index in the task worktree
-  before task creation. It never copies or symlinks the base index.
+  prepares an independent CodeGraph index in the task worktree with
+  `scripts/trellis_codegraph.py` before task creation. It never copies or
+  symlinks the base index. MCP queries must pass `projectPath` set to the task
+  worktree absolute path.
 - Implement/check dispatch prompts begin with absolute `Active task:` and
   `Workdir:` lines. Agents may operate only inside that worktree.
 - Phase 3.5 removes the worktree and local task branch only after the squash
   merge and remote-branch deletion are verified.
 
 The Trellis marketplace transport still downloads only `workflow.md`; it does not copy companion scripts or `.trellis/config.yaml`. Phase 1.0 therefore runs
-the release-pinned setup when project tooling is missing. Do not attach raw
+the release-pinned setup in the task worktree when project tooling is missing.
+First-time adoption should finish that install in the task directory, not the
+coordinating worktree. Do not attach raw
 `git worktree remove` to archive-time automation. Phase 3.5 removes the worktree
 only after the squash merge and remote-branch deletion are verified.
 
@@ -51,8 +57,11 @@ only after the squash merge and remote-branch deletion are verified.
 - Git with `git worktree` support
 - an authenticated GitHub CLI (`gh`) for normal GC verification and PR finish
 - a GitHub repository whose pull requests publish at least one check result
-- optional CodeGraph CLI; it becomes required for task worktree creation when
-  the coordinating worktree already contains `.codegraph/`
+  that actually runs the project's test suite; a size/line-count gate alone is
+  not enough
+- optional CodeGraph CLI (`@colbymchenry/codegraph@1.6.0` is the version these
+  helpers verify); it becomes required for task worktree creation when the
+  coordinating worktree already contains `.codegraph/`
 - optional Open Code Review 1.9.4 or later (`ocr`) plus Git 2.41 or later for
   local AI review; missing or unconfigured OCR is recorded but does not block
   the workflow
@@ -62,7 +71,7 @@ only after the squash merge and remote-branch deletion are verified.
 ```bash
 trellis init --yes --user <name> --codex \
   --workflow solo-github-flow \
-  --workflow-source gh:kakamisamas/trellis-personal-marketplace#v1.3.0
+  --workflow-source gh:kakamisamas/trellis-personal-marketplace#v1.4.0
 ```
 
 Select the platform flags your project actually uses; `--codex` is only an
@@ -74,10 +83,10 @@ List the remote templates, then switch:
 
 ```bash
 trellis workflow --list \
-  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.3.0
+  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.4.0
 
 trellis workflow \
-  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.3.0 \
+  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.4.0 \
   --template solo-github-flow
 ```
 
@@ -85,7 +94,7 @@ If `.trellis/workflow.md` has local edits, preview the replacement first:
 
 ```bash
 trellis workflow \
-  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.3.0 \
+  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.4.0 \
   --template solo-github-flow \
   --create-new
 ```
@@ -95,26 +104,36 @@ workflow is intentional.
 
 ## Install project tooling
 
-From the target repository root, preview and then apply the release-pinned
-installer:
+From the **task worktree** on first adoption (or any caller-specified repository
+when running setup by hand), preview and then apply the release-pinned
+installer. `v1.4.0` is the minimum release that ships `trellis_codegraph.py` and
+`trellis_diff.py`. Install the workflow and tooling from the same release.
+Existing projects must run the installer to adopt these helpers; publishing a
+marketplace release does not upgrade downstream projects automatically.
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.3.0/scripts/setup.sh) --dry-run
-bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.3.0/scripts/setup.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.4.0/scripts/setup.sh) --dry-run
+bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.4.0/scripts/setup.sh)
 ```
 
-The installer manages three targets:
+The installer manages these targets:
 
-- `scripts/trellis_gc.py` is installed or updated atomically; a changed copy is
-  backed up first with a UTC timestamp;
+- `scripts/trellis_gc.py`, `scripts/trellis_codegraph.py`, and
+  `scripts/trellis_diff.py` are installed or updated atomically; a changed copy
+  is backed up first with a UTC timestamp;
 - `.github/workflows/pr-gate.yml` is installed only when absent;
+- `.trellis/templates/ci/tests-python.yml` is installed only when absent (a
+  template, not a live workflow);
 - `trellis-setup` is installed in the shared skill root and the skill roots of
   configured platforms.
 
-An existing PR gate or setup skill is never overwritten. Setup prints a diff
-and exits `2` so project-specific changes can be reviewed manually. There is no `--force` mode in v1. A missing or unauthenticated `gh` is only a warning: GC
-keeps candidates it cannot verify. The installer also checks whether `ocr` is on
-`PATH`, but never installs it, chooses a model, or writes an API key.
+An existing PR gate, test CI template, or setup skill is never overwritten.
+Setup prints a diff and exits `2` so project-specific changes can be reviewed
+manually; that exit is a non-blocking partial success. There is no `--force` mode in v1. After changing `trellis_diff.py`, ship the PR gate in the same
+release. A missing or unauthenticated `gh` is only a warning: GC keeps
+candidates it cannot verify. The installer also checks whether `ocr` is on
+`PATH`, but never installs it, chooses a model, or writes an API key. Do not
+copy the Python/pytest test template into `.github/workflows/` for unittest-only or non-Python projects.
 
 Lifecycle hooks run from the repository or linked-worktree root in Trellis
 0.6.12. If a later Trellis version changes the hook CWD, that does not change
@@ -167,7 +186,7 @@ Initialize Trellis and install the architecture baseline in one command:
 
 ```bash
 trellis init --yes --user <name> --codex \
-  --registry gh:kakamisamas/trellis-personal-marketplace#v1.3.0 \
+  --registry gh:kakamisamas/trellis-personal-marketplace#v1.4.0 \
   --template solo-baseline
 ```
 
@@ -183,7 +202,7 @@ already exist:
 
 ```bash
 trellis init --yes --user <name> --codex \
-  --registry gh:kakamisamas/trellis-personal-marketplace#v1.3.0 \
+  --registry gh:kakamisamas/trellis-personal-marketplace#v1.4.0 \
   --template solo-baseline \
   --append
 ```
@@ -211,7 +230,7 @@ is explicitly changed.
 ## Update and rollback
 
 Remote workflow and tooling updates are not applied silently. For a later
-release, replace `v1.3.0` with the new immutable tag, preview the workflow with
+release, replace `v1.4.0` with the new immutable tag, preview the workflow with
 `--create-new`, review the installer dry-run and diffs, then switch deliberately.
 
 To return to Trellis's bundled workflow:

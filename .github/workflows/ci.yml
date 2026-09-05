@@ -18,8 +18,23 @@ jobs:
         with:
           python-version: "3.12"
       - run: python3 -m unittest discover -s tests -p 'test_*.py'
-      - run: python3 -m py_compile scripts/trellis_gc.py
+      - run: python3 -m py_compile scripts/trellis_gc.py scripts/trellis_codegraph.py scripts/trellis_diff.py
       - run: bash -n scripts/smoke-install.sh scripts/setup.sh
+
+  candidate-install:
+    needs: static
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install --global @mindfoldhq/trellis@0.6.12
+      - name: Candidate smoke against local workflow and assets
+        env:
+          TRELLIS_WORKFLOW_FILE: ${{ github.workspace }}/workflows/solo-github-flow/workflow.md
+          TRELLIS_MARKETPLACE_SOURCE: gh:kakamisamas/trellis-personal-marketplace#v1.3.0
+        run: scripts/smoke-install.sh
 
   remote-install:
     if: github.event_name == 'push'
@@ -31,4 +46,23 @@ jobs:
         with:
           node-version: "22"
       - run: npm install --global @mindfoldhq/trellis@0.6.12
-      - run: scripts/smoke-install.sh
+      - name: Published marketplace transport from main
+        run: scripts/smoke-install.sh
+
+  codegraph-integration:
+    needs: static
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install --global @colbymchenry/codegraph@1.6.0
+      - name: Require CodeGraph CLI and run integration
+        env:
+          TRELLIS_CODEGRAPH_INTEGRATION: "1"
+          CODEGRAPH_NO_DAEMON: "1"
+        run: python3 -m unittest discover -s tests -p 'test_codegraph_integration.py'
