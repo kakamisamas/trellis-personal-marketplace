@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 INDEX = ROOT / "index.json"
 README = ROOT / "README.md"
 BASELINE = ROOT / "specs" / "solo-baseline" / "guides" / "architecture-baseline.md"
-PINNED_SOURCE = "gh:kakamisamas/trellis-personal-marketplace#v1.3.0"
+PINNED_SOURCE = "gh:kakamisamas/trellis-personal-marketplace#v1.4.0"
 
 
 class RegistrySmokeTests(unittest.TestCase):

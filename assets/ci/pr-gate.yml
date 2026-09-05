@@ -14,21 +14,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Diff size gate (3500 lines)
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          if ! git cat-file -e "${BASE_SHA}^{commit}" || ! git cat-file -e "${HEAD_SHA}^{commit}"; then
-            echo "::error::PR base/head commit is unavailable; checkout must use fetch-depth: 0"
-            exit 1
-          fi
-          LINES=$(git diff --numstat "${BASE_SHA}...${HEAD_SHA}" -- . \
-            ':(exclude)*.lock' ':(exclude)*-lock.*' \
-            ':(exclude)dist/**' ':(exclude)*.min.*' \
-            | awk '$1!="-"{a+=$1+$2} END{print a+0}')
-          echo "changed lines: ${LINES}"
-          if [ "${LINES}" -gt 3500 ]; then
-            echo "::error::PR changes ${LINES} lines, above the 3500-line limit; split the task and resubmit"
-            exit 1
-          fi
+        run: python3 scripts/trellis_diff.py --base "${BASE_SHA}" --head "${HEAD_SHA}" --check

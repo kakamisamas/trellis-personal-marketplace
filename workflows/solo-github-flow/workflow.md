@@ -187,7 +187,7 @@ No active task. First classify the current turn and ask for task-creation consen
 Worktree coordinator exception: if this session already holds a verified absolute `Active task` and `Workdir` created in Phase 1.0, continue that task's planning from those paths; do not create a duplicate task merely because the base worktree has no local pointer yet.
 Simple conversation / small task: ask only whether this turn should create a Trellis task. If the user says no, skip Trellis for this session.
 Complex task: ask the user if you can create a Trellis task and enter the planning phase. If the user says no, explain, clarify scope, or suggest a smaller split.
-After consent and before creating a task worktree, bootstrap missing solo-github-flow tooling and run the merged-task GC described in Phase 1.0.
+After consent, do the Phase 1.0 read-only coordinating-worktree checks and, if `scripts/trellis_gc.py` is already present, the merged-task GC. Do not install marketplace files into the coordinating worktree. Create the task worktree first, then bootstrap missing solo-github-flow tooling inside that task worktree.
 [/workflow-state:no_task]
 
 ### Phase 1: Plan
@@ -208,6 +208,7 @@ If `.trellis/spec/guides/architecture-baseline.md` exists, read it before planni
 When presenting the plan, pair each technical action with the plain-language function or result it delivers.
 Keep all planning files and commands inside the task's recorded worktree. The base worktree coordinates by absolute task/worktree paths and stays on the base branch.
 Multi-deliverable scope: consider a parent task plus independently verifiable child worktrees; dependencies must be written in child artifacts, not implied by tree position.
+Test CI planning gate: read existing GitHub workflow `run:` steps and confirm at least one check executes the project's real test command; a size/line-count gate is not enough, and a file named tests.yml is not enough. If missing, configure a test workflow in the task worktree from the project's actual test docs; copy `.trellis/templates/ci/tests-python.yml` only for matching Python/pytest projects, never blindly for unittest-only or non-Python stacks.
 Sub-agent mode: curate `implement.jsonl` and `check.jsonl` as spec/research manifests before start.
 [/workflow-state:planning]
 
@@ -225,6 +226,7 @@ If `.trellis/spec/guides/architecture-baseline.md` exists, read it before planni
 When presenting the plan, pair each technical action with the plain-language function or result it delivers.
 Keep all planning files and commands inside the task's recorded worktree. The base worktree coordinates by absolute task/worktree paths and stays on the base branch.
 Multi-deliverable scope: consider a parent task plus independently verifiable child worktrees; dependencies must be written in child artifacts, not implied by tree position.
+Test CI planning gate: read existing GitHub workflow `run:` steps and confirm at least one check executes the project's real test command; a size/line-count gate is not enough, and a file named tests.yml is not enough. If missing, configure a test workflow in the task worktree from the project's actual test docs; copy `.trellis/templates/ci/tests-python.yml` only for matching Python/pytest projects, never blindly for unittest-only or non-Python stacks.
 Inline mode: skip jsonl curation; Phase 2 reads artifacts/specs via `trellis-before-dev`.
 [/workflow-state:planning-inline]
 
@@ -246,16 +248,17 @@ Active task: <absolute task path>
 Workdir: <absolute task worktree path>
 ```
 
-The sub-agent may read and modify files and run commands only inside `Workdir`. It must resolve artifacts from the absolute `Active task` path and must not rely on the coordinating base worktree's `task.py current`. On Grok Build, use `spawn_subagent` with `subagent_type` set to the Trellis agent name (e.g. `trellis-implement`). On Kimi Code, dispatch the built-in `coder` / `explore` sub-agent with the matching `.kimi-code/skills/trellis-<role>/SKILL.md` instructions.
+The sub-agent may read and modify files and run commands only inside `Workdir`. It must resolve artifacts from the absolute `Active task` path and must not rely on the coordinating base worktree's `task.py current`. CodeGraph MCP calls must pass `projectPath` set to that absolute `Workdir`; CodeGraph CLI commands must pass the same absolute path. Do not query the coordinating worktree index. On Grok Build, use `spawn_subagent` with `subagent_type` set to the Trellis agent name (e.g. `trellis-implement`). On Kimi Code, dispatch the built-in `coder` / `explore` sub-agent with the matching `.kimi-code/skills/trellis-<role>/SKILL.md` instructions.
 
 [workflow-state:in_progress]
 Tools: `trellis-implement` / `trellis-research` are sub-agent types only (Task/Agent tool, NOT Skill; there is no skill by these names). `trellis-update-spec` is a skill. `trellis-check` exists as both; prefer the Agent form when verifying after code changes.
 Flow: `trellis-implement` (one behavior at a time: red test -> green implementation -> refactor while green) -> `trellis-check` -> final Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
-Line budget: 2500 changed lines for this task (CI hard limit 3500). After each behavior slice, report the cumulative changed-line count. If approaching the budget, finish and open the PR first; remaining work becomes a new subtask.
+Line budget: 2500 changed lines for this task (CI hard limit 3500). After each behavior slice, report the cumulative changed-line count from `python3 scripts/trellis_diff.py --base <base-branch>`. If approaching the budget, finish and open the PR first; remaining work becomes a new subtask.
+If CodeGraph prepare was not skipped, run a health check / necessary `python3 scripts/trellis_codegraph.py sync --worktree <absolute-worktree-path>` before first index use and before the final Phase 2.2; after source edits, sync before relying on symbols or call paths. When CodeGraph was skipped, do not force the CLI.
 A final Phase 2.2 is not green until every OCR comment is fixed or rejected with verifiable evidence, or an unavailable/partial/failed review is recorded for the PR body. OCR runs exactly once: never use `--resume` and never start a re-review after fixes.
 During Phase 3.3, update the architecture baseline Decision Log when module boundaries, dependency direction, or recorded data flow changed. During Phase 3.5, use `scripts/trellis_gc.py --apply` for verified cleanup.
 Main-session default: dispatch implement/check sub-agents into the task's recorded worktree. Sub-agent self-exemption: if already running as `trellis-implement`, do NOT spawn another `trellis-implement` or `trellis-check`; if already running as `trellis-check`, do NOT spawn another `trellis-check` or `trellis-implement`. Dispatch is main session only.
-Dispatch prompt starts with absolute `Active task:` and `Workdir:` lines. Only change files under `Workdir`. Read context: jsonl entries -> `prd.md` -> `design.md if present` -> `implement.md if present`.
+Dispatch prompt starts with absolute `Active task:` and `Workdir:` lines. Only change files under `Workdir`. CodeGraph MCP `projectPath` and CLI paths must equal that `Workdir`. Read context: jsonl entries -> `prd.md` -> `design.md if present` -> `implement.md if present`.
 [/workflow-state:in_progress]
 
 <!-- Per-turn breadcrumb: shown while status='in_progress' when
@@ -265,6 +268,7 @@ Dispatch prompt starts with absolute `Active task:` and `Workdir:` lines. Only c
 
 [workflow-state:in_progress-inline]
 Flow: `trellis-before-dev` -> choose one behavior -> red test -> green implementation -> refactor while green -> `trellis-check` -> validation -> final Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
+If CodeGraph prepare was not skipped, run a health check / necessary `python3 scripts/trellis_codegraph.py sync --worktree <absolute-worktree-path>` before first index use and before the final Phase 2.2; after source edits, sync before relying on symbols or call paths. When CodeGraph was skipped, do not force the CLI. CodeGraph MCP `projectPath` and CLI paths must be the task worktree absolute path.
 A final Phase 2.2 is not green until every OCR comment is fixed or rejected with verifiable evidence, or an unavailable/partial/failed review is recorded for the PR body. OCR runs exactly once: never use `--resume` and never start a re-review after fixes.
 During Phase 3.3, update the architecture baseline Decision Log when module boundaries, dependency direction, or recorded data flow changed. During Phase 3.5, use `scripts/trellis_gc.py --apply` for verified cleanup.
 Do not dispatch implement/check sub-agents in inline mode.
@@ -344,20 +348,27 @@ Goal: classify the request, get task-creation consent when a task is needed, and
 #### 1.0 Create task `[required · once]`
 
 Create the task worktree, branch, and task directory only after task-creation consent. The coordinating worktree stays checked out on the base branch and is used only for planning, acceptance, merge, and cleanup.
-Before changing files:
+Before changing files, run a read-only check. Do not write marketplace files into the coordinating worktree:
 
-1. verify `scripts/trellis_gc.py`, `.github/workflows/pr-gate.yml`, and the
-   `trellis-setup` skill are installed;
-   if any is missing, run
-   `bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.3.0/scripts/setup.sh)`
-   once from the repository root and review its report;
-2. from the coordinating base worktree run
-   `python3 scripts/trellis_gc.py --apply` to remove clean leftovers whose
-   upstream is gone and whose merged PR head matches the local branch;
-3. inspect the complete working tree and stop on changes that cannot be safely
-   attributed to the user or the current task;
-4. discover the actual remote and default/base branch instead of assuming
+1. inspect the complete coordinating working tree and stop on changes that cannot
+   be safely attributed to the user or the current task; cleanliness must hold
+   before any install write;
+2. discover the actual remote and default/base branch instead of assuming
    `origin` or `main`;
+3. verify this presence checklist without installing anything:
+   `scripts/trellis_gc.py`, `scripts/trellis_codegraph.py`,
+   `scripts/trellis_diff.py`, `.github/workflows/pr-gate.yml`, the
+   `trellis-setup` skill, and `.trellis/templates/ci/tests-python.yml`.
+   A project that already has the original GC, PR gate, and setup skill still
+   must run setup in the new task worktree when any newer asset is missing;
+4. if `scripts/trellis_gc.py` is already present, from the coordinating base
+   worktree run `python3 scripts/trellis_gc.py --apply` to remove clean leftovers
+   whose upstream is gone and whose merged PR head matches the local branch.
+   If GC is not installed, do not install it into the coordinating worktree to
+   obtain it. For each leftover candidate separately, fetch with prune, confirm
+   its upstream is `[gone]`, verify `gh pr view <branch> --json state,headRefOid`
+   reports `MERGED` with a head SHA equal to the local branch, and require its
+   worktree to be clean before removing that worktree and branch. It is safe to leave uncertain candidates behind and continue the new task;
 5. require the base worktree to be clean and fast-forward its base branch from
    upstream without rewriting history;
 6. derive one canonical task directory name `<MM-DD-slug>`, branch
@@ -366,12 +377,6 @@ Before changing files:
    `task/` prefix;
 7. refuse branch/path collisions instead of reusing an unrelated worktree.
 
-If bootstrap cannot provide the GC script, do not run a broad deletion command.
-For each candidate separately, fetch with prune, confirm its upstream is
-`[gone]`, verify `gh pr view <branch> --json state,headRefOid` reports `MERGED`
-with a head SHA equal to the local branch, and require its worktree to be clean
-before removing that worktree and branch. It is safe to leave uncertain candidates behind and continue the new task.
-
 Create the isolated worktree from the resolved base before creating the task:
 
 ```bash
@@ -379,25 +384,40 @@ git worktree add "../<repo>-wt/<MM-DD-slug>" \
   -b "task/<MM-DD-slug>" "<base>"
 ```
 
-CodeGraph indexes are worktree-local. If the coordinating base worktree is
-already CodeGraph-enabled, initialize a separate index in the new task worktree
-before creating the task:
+If any checklist asset is missing, run the release-pinned setup once from the
+task worktree (not the coordinating worktree). Installed files belong to this
+task and are committed with it. Setup is idempotent when the files already
+match. Exit code 2 means an existing PR gate, test CI template, or setup skill
+differs and needs a manual diff; that is a non-blocking partial success.
+`v1.4.0` is the minimum installer that ships the CodeGraph and diff helpers.
+Install the workflow and tooling from the same release. If an older installer
+is used and a helper is missing, stop with a version/missing-asset report;
+do not proceed with missing Python files:
 
 ```bash
-if [[ -d "<absolute-base-worktree>/.codegraph" ]]; then
-  command -v codegraph >/dev/null 2>&1 || {
-    printf '[ERROR] CodeGraph is enabled in the base worktree but its CLI is unavailable\n' >&2
-    exit 1
-  }
-  codegraph init "<absolute-worktree-path>"
-  codegraph status "<absolute-worktree-path>"
-fi
+bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.4.0/scripts/setup.sh)
 ```
 
-Stop before `task.py create` if initialization or status verification fails.
-Keep the worktree for repair and resume this step after CodeGraph is healthy.
-Do not copy or symlink `.codegraph/` from the coordinating worktree: its index
-is bound to that worktree's absolute path and checked-out content.
+Retry of a known task must re-verify the worktree path, branch, and base, then
+continue. Do not recreate the task or accept an unrelated path collision. Keep a
+recoverable worktree on failure.
+
+From the task worktree, prepare CodeGraph, then initialize the developer
+identity. CodeGraph indexes are worktree-local. `prepare` skips with a skipped
+status when neither worktree is enabled, initializes an independent task index
+when the base is enabled, and verifies an existing task index. Do not copy or
+symlink `.codegraph/` from the coordinating worktree.
+
+```bash
+python3 scripts/trellis_codegraph.py prepare \
+  --base-worktree "<absolute-base-worktree>" \
+  --worktree "<absolute-worktree-path>"
+```
+
+Stop before `task.py create` if prepare fails. Keep the worktree for repair and
+resume this step after CodeGraph is healthy. Do not copy or symlink `.codegraph/`
+from the coordinating worktree: its index is bound to that worktree's absolute
+path and checked-out content.
 
 Inside the new worktree, initialize the same developer identity because
 `.trellis/.developer` and `.trellis/.runtime/` are gitignored and worktree-local.
@@ -580,6 +600,7 @@ available.
 | `design.md` exists (complex tasks) | ✅ |
 | `implement.md` exists (complex tasks) | ✅ |
 | Each implementation subtask in `implement.md` has an estimated changed-line count at or below 2500 (CI hard limit 3500); split during planning if over | ✅ |
+| A GitHub workflow that actually runs the project's test suite is configured, or the planning report records the path and real test command just added; a size/line-count gate alone is not enough | ✅ |
 
 [Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
 
@@ -699,10 +720,16 @@ If issues are found → fix → re-check, until green.
 
 [/codex-inline, Kilo, Antigravity, Devin]
 
-Report the cumulative changed-line count from the task worktree:
+Report the cumulative changed-line count from the task worktree (2500 is the planning budget; 3500 is the CI hard limit):
 
 ```bash
-git diff --numstat <base-branch>...HEAD -- . ':(exclude)*.lock' ':(exclude)*-lock.*' | awk '$1!="-"{a+=$1+$2} END{print a+0}'
+python3 scripts/trellis_diff.py --base <base-branch>
+```
+
+If CodeGraph prepare was not skipped, sync the task index before this quality check when source changed or the index will be queried:
+
+```bash
+python3 scripts/trellis_codegraph.py sync --worktree "<absolute-worktree-path>"
 ```
 
 **Final pass (before Phase 3.4 commit)**: the last 2.2 of a task must run full-scope, not just on the latest implement chunk. List all affected packages with `python3 ./.trellis/scripts/get_context.py --mode packages`, then load each package's spec index Quality Check section. This catches cross-layer / multi-package issues a mid-iteration local 2.2 cannot.
@@ -771,7 +798,9 @@ After that authorization:
    base worktree path, task branch, base branch, remote, and current head SHA
    before archival clears the task worktree's active pointer;
 2. run `git status --porcelain --untracked-files=all`, classify every dirty path,
-   and stop rather than commit unknown or user-owned files;
+   and stop rather than commit unknown or user-owned files. Files installed by
+   Phase 1.0 setup in this task worktree (GC, CodeGraph, and diff helpers, PR
+   gate, test CI template, setup skill) are current-task files;
 3. learn the repository's commit style and group only current-task files into
    coherent Conventional Commits;
 4. stage explicit paths and commit the work, without amending or bypassing hooks;

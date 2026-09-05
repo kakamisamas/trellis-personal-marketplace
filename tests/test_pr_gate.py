@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import tempfile
-import textwrap
 import unittest
 from pathlib import Path
 
@@ -11,12 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CANONICAL = ROOT / ".github" / "workflows" / "pr-gate.yml"
 ASSET = ROOT / "assets" / "ci" / "pr-gate.yml"
-
-
-def run_block() -> str:
-    lines = CANONICAL.read_text(encoding="utf-8").splitlines()
-    start = lines.index("        run: |") + 1
-    return textwrap.dedent("\n".join(lines[start:])) + "\n"
+DIFF_HELPER = ROOT / "scripts" / "trellis_diff.py"
 
 
 class PullRequestGateTests(unittest.TestCase):
@@ -27,6 +22,9 @@ class PullRequestGateTests(unittest.TestCase):
         subprocess.run(["git", "init", "-q", "-b", "main", root], check=True)
         subprocess.run(["git", "-C", root, "config", "user.name", "Gate Test"], check=True)
         subprocess.run(["git", "-C", root, "config", "user.email", "gate@example.invalid"], check=True)
+        scripts = root / "scripts"
+        scripts.mkdir()
+        shutil.copy(DIFF_HELPER, scripts / "trellis_diff.py")
         (root / "base.txt").write_text("base\n", encoding="utf-8")
         subprocess.run(["git", "-C", root, "add", "."], check=True)
         subprocess.run(["git", "-C", root, "commit", "-q", "-m", "base"], check=True)
@@ -40,14 +38,31 @@ class PullRequestGateTests(unittest.TestCase):
 
     def execute(self, root: Path, base: str, head: str) -> subprocess.CompletedProcess[str]:
         env = dict(os.environ, BASE_SHA=base, HEAD_SHA=head)
-        return subprocess.run(["bash", "-c", run_block()], cwd=root, env=env, text=True, capture_output=True)
+        return subprocess.run(
+            [
+                "python3",
+                str(root / "scripts" / "trellis_diff.py"),
+                "--base",
+                base,
+                "--head",
+                head,
+                "--check",
+            ],
+            cwd=root,
+            env=env,
+            text=True,
+            capture_output=True,
+        )
 
     def test_distribution_asset_is_canonical_workflow(self) -> None:
         self.assertEqual(CANONICAL.read_bytes(), ASSET.read_bytes())
         content = CANONICAL.read_text(encoding="utf-8")
         self.assertIn("workflow_call:", content)
         self.assertIn("fetch-depth: 0", content)
-        self.assertIn("git cat-file -e", content)
+        self.assertIn("actions/setup-python@v5", content)
+        self.assertIn("python3 scripts/trellis_diff.py --base", content)
+        self.assertIn("--head", content)
+        self.assertIn("--check", content)
 
     def test_exact_limit_passes_even_with_excluded_and_binary_files(self) -> None:
         root, base = self.make_repo()

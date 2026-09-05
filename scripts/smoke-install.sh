@@ -2,6 +2,8 @@
 set -euo pipefail
 
 readonly ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# v1.3.0 is a published fixture pin for the Trellis native skeleton only.
+# Candidate workflow/assets come from TRELLIS_WORKFLOW_FILE and TRELLIS_SETUP_ASSET_ROOT.
 readonly SOURCE="${TRELLIS_MARKETPLACE_SOURCE:-gh:kakamisamas/trellis-personal-marketplace}"
 readonly EXPECTED_VERSION="${TRELLIS_EXPECTED_VERSION:-0.6.12}"
 readonly WORKFLOW_FILE="${TRELLIS_WORKFLOW_FILE:-}"
@@ -37,13 +39,6 @@ if [[ -n "$WORKFLOW_FILE" ]]; then
 else
   cmp "$ROOT/workflows/solo-github-flow/workflow.md" "$temporary/.trellis/workflow.md"
 fi
-
-(
-  cd "$temporary"
-  TRELLIS_SETUP_ASSET_ROOT="$ROOT" "$ROOT/scripts/setup.sh"
-)
-cmp "$ROOT/scripts/trellis_gc.py" "$temporary/scripts/trellis_gc.py"
-cmp "$ROOT/assets/ci/pr-gate.yml" "$temporary/.github/workflows/pr-gate.yml"
 
 phase_22_context=""
 for step in 1.0 1.4 2.1 2.2 3.3 3.4 3.5; do
@@ -84,6 +79,42 @@ task_branch="task/${task_name}"
 worktree_path="${worktree_root}/${task_name}"
 mkdir -p "$worktree_root"
 git -C "$temporary" worktree add "$worktree_path" -b "$task_branch" main >/dev/null
+
+(
+  cd "$worktree_path"
+  TRELLIS_SETUP_ASSET_ROOT="$ROOT" "$ROOT/scripts/setup.sh"
+)
+cmp "$ROOT/scripts/trellis_gc.py" "$worktree_path/scripts/trellis_gc.py"
+cmp "$ROOT/scripts/trellis_codegraph.py" "$worktree_path/scripts/trellis_codegraph.py"
+cmp "$ROOT/scripts/trellis_diff.py" "$worktree_path/scripts/trellis_diff.py"
+cmp "$ROOT/assets/ci/pr-gate.yml" "$worktree_path/.github/workflows/pr-gate.yml"
+cmp "$ROOT/assets/ci/tests-python.yml" "$worktree_path/.trellis/templates/ci/tests-python.yml"
+[[ -x "$worktree_path/scripts/trellis_gc.py" ]]
+[[ -x "$worktree_path/scripts/trellis_codegraph.py" ]]
+[[ -x "$worktree_path/scripts/trellis_diff.py" ]]
+[[ -z "$(git -C "$temporary" status --porcelain --untracked-files=all)" ]]
+[[ ! -e "$temporary/scripts/trellis_gc.py" ]]
+[[ ! -e "$temporary/scripts/trellis_codegraph.py" ]]
+[[ ! -e "$temporary/scripts/trellis_diff.py" ]]
+
+(
+  cd "$worktree_path"
+  python3 scripts/trellis_codegraph.py prepare \
+    --base-worktree "$temporary" \
+    --worktree "$worktree_path"
+)
+installed_assets=(
+  scripts/trellis_gc.py
+  scripts/trellis_codegraph.py
+  scripts/trellis_diff.py
+  .github/workflows/pr-gate.yml
+  .trellis/templates/ci/tests-python.yml
+  .agents/skills/trellis-setup/SKILL.md
+)
+git -C "$worktree_path" add -f -- "${installed_assets[@]}"
+if ! git -C "$worktree_path" diff --cached --quiet; then
+  git -C "$worktree_path" commit -q -m "test: install marketplace tooling"
+fi
 
 task_rel="$({
   cd "$worktree_path"
@@ -128,6 +159,7 @@ assert task["status"] == "in_progress"
 PY
 
 git -C "$worktree_path" add "$task_rel"
+git -C "$worktree_path" add -f -- "${installed_assets[@]}"
 git -C "$worktree_path" commit -q -m "test: record worktree task"
 
 archive_log="$({
@@ -146,6 +178,12 @@ git -C "$worktree_path" add .trellis
 if ! git -C "$worktree_path" diff --cached --quiet; then
   git -C "$worktree_path" commit -q -m "test: archive worktree task"
 fi
+if [[ -n "$(git -C "$worktree_path" status --porcelain --untracked-files=all)" ]]; then
+  git -C "$worktree_path" status --porcelain --untracked-files=all >&2
+  printf 'task worktree is dirty; refusing git worktree remove --force\n' >&2
+  exit 1
+fi
+[[ -z "$(git -C "$temporary" status --porcelain --untracked-files=all)" ]]
 git -C "$temporary" worktree remove "$worktree_path"
 git -C "$temporary" branch -D "$task_branch" >/dev/null
 git -C "$temporary" worktree prune
