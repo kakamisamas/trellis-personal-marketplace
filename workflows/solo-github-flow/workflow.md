@@ -252,10 +252,10 @@ The sub-agent may read and modify files and run commands only inside `Workdir`. 
 
 [workflow-state:in_progress]
 Tools: `trellis-implement` / `trellis-research` are sub-agent types only (Task/Agent tool, NOT Skill; there is no skill by these names). `trellis-update-spec` is a skill. `trellis-check` exists as both; prefer the Agent form when verifying after code changes.
-Flow: `trellis-implement` (one behavior at a time: red test -> green implementation -> refactor while green) -> `trellis-check` -> final Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
+Flow: `trellis-implement` (one behavior at a time: red test -> green implementation -> refactor while green) -> `trellis-check` -> PR-bound Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
 Line budget: 2500 changed lines for this task (CI hard limit 3500). After each behavior slice, report the cumulative changed-line count from `python3 scripts/trellis_diff.py --base <base-branch>`. If approaching the budget, finish and open the PR first; remaining work becomes a new subtask.
-If CodeGraph prepare was not skipped, run a health check / necessary `python3 scripts/trellis_codegraph.py sync --worktree <absolute-worktree-path>` before first index use and before the final Phase 2.2; after source edits, sync before relying on symbols or call paths. When CodeGraph was skipped, do not force the CLI.
-A final Phase 2.2 is not green until every OCR comment is fixed or rejected with verifiable evidence, or an unavailable/partial/failed review is recorded for the PR body. OCR runs exactly once: never use `--resume` and never start a re-review after fixes.
+If CodeGraph prepare was not skipped, run a health check / necessary `python3 scripts/trellis_codegraph.py sync --worktree <absolute-worktree-path>` before first index use and before the PR-bound Phase 2.2; after source edits, sync before relying on symbols or call paths. When CodeGraph was skipped, do not force the CLI.
+A PR-bound Phase 2.2 is not green until every OCR comment is fixed or rejected with verifiable evidence, or an unavailable/partial/failed review is recorded for that PR body. OCR runs exactly once per pull request: never use `--resume` and never re-review that PR after fixes. A later PR in the same task is a new review, not a deferred whole-task review. trellis-check stays repeatable.
 During Phase 3.3, update the architecture baseline Decision Log when module boundaries, dependency direction, or recorded data flow changed. During Phase 3.5, use `scripts/trellis_gc.py --apply` for verified cleanup.
 Main-session default: dispatch implement/check sub-agents into the task's recorded worktree. Sub-agent self-exemption: if already running as `trellis-implement`, do NOT spawn another `trellis-implement` or `trellis-check`; if already running as `trellis-check`, do NOT spawn another `trellis-check` or `trellis-implement`. Dispatch is main session only.
 Dispatch prompt starts with absolute `Active task:` and `Workdir:` lines. Only change files under `Workdir`. CodeGraph MCP `projectPath` and CLI paths must equal that `Workdir`. Read context: jsonl entries -> `prd.md` -> `design.md if present` -> `implement.md if present`.
@@ -267,9 +267,9 @@ Dispatch prompt starts with absolute `Active task:` and `Workdir:` lines. Only c
      instead of dispatching sub-agents. -->
 
 [workflow-state:in_progress-inline]
-Flow: `trellis-before-dev` -> choose one behavior -> red test -> green implementation -> refactor while green -> `trellis-check` -> validation -> final Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
-If CodeGraph prepare was not skipped, run a health check / necessary `python3 scripts/trellis_codegraph.py sync --worktree <absolute-worktree-path>` before first index use and before the final Phase 2.2; after source edits, sync before relying on symbols or call paths. When CodeGraph was skipped, do not force the CLI. CodeGraph MCP `projectPath` and CLI paths must be the task worktree absolute path.
-A final Phase 2.2 is not green until every OCR comment is fixed or rejected with verifiable evidence, or an unavailable/partial/failed review is recorded for the PR body. OCR runs exactly once: never use `--resume` and never start a re-review after fixes.
+Flow: `trellis-before-dev` -> choose one behavior -> red test -> green implementation -> refactor while green -> `trellis-check` -> validation -> PR-bound Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
+If CodeGraph prepare was not skipped, run a health check / necessary `python3 scripts/trellis_codegraph.py sync --worktree <absolute-worktree-path>` before first index use and before the PR-bound Phase 2.2; after source edits, sync before relying on symbols or call paths. When CodeGraph was skipped, do not force the CLI. CodeGraph MCP `projectPath` and CLI paths must be the task worktree absolute path.
+A PR-bound Phase 2.2 is not green until every OCR comment is fixed or rejected with verifiable evidence, or an unavailable/partial/failed review is recorded for that PR body. OCR runs exactly once per pull request: never use `--resume` and never re-review that PR after fixes. A later PR in the same task is a new review, not a deferred whole-task review. trellis-check stays repeatable.
 During Phase 3.3, update the architecture baseline Decision Log when module boundaries, dependency direction, or recorded data flow changed. During Phase 3.5, use `scripts/trellis_gc.py --apply` for verified cleanup.
 Do not dispatch implement/check sub-agents in inline mode.
 Run all reads, edits, and commands inside the task's recorded worktree; keep the coordinating base worktree unchanged.
@@ -732,21 +732,21 @@ If CodeGraph prepare was not skipped, sync the task index before this quality ch
 python3 scripts/trellis_codegraph.py sync --worktree "<absolute-worktree-path>"
 ```
 
-**Final pass (before Phase 3.4 commit)**: the last 2.2 of a task must run full-scope, not just on the latest implement chunk. List all affected packages with `python3 ./.trellis/scripts/get_context.py --mode packages`, then load each package's spec index Quality Check section. This catches cross-layer / multi-package issues a mid-iteration local 2.2 cannot.
+**Final pass (before each pull request that will merge)**: the last 2.2 for that PR must run full-scope on the packages it touches, not just the latest implement chunk. List all affected packages with `python3 ./.trellis/scripts/get_context.py --mode packages`, then load each package's spec index Quality Check section. This catches cross-layer / multi-package issues a mid-iteration local 2.2 cannot. A task that ships several PRs repeats this full-scope pass per PR; do not wait for task archival.
 
-After that full-scope check and its tests are green, the main session runs one local Open Code Review (OCR) advisory review from the task worktree. This is part of the final 2.2 completion condition; do not add a separate workflow step that `/trellis:continue` could skip.
+After that full-scope check and its tests are green, the main session runs one local Open Code Review (OCR) advisory review of **this PR's product diff** from the task worktree. This is part of that PR's 2.2 completion condition; do not add a separate workflow step that `/trellis:continue` could skip. One Trellis task with several mergeable PRs runs one OCR per PR, not one OCR for the whole task. Phase 2.2 `trellis-check` remains `[required · repeatable]` and is not limited to once per task or once per PR.
 
 1. Use this exact semantic exclusion set for preview and review:
    `**/*.lock,**/*-lock.*,dist/**,**/*.min.*,.trellis/tasks/**,.trellis/.runtime/**,.trellis/workspace/**`.
    It removes generated artifacts and Trellis bookkeeping while preserving legitimate changes such as `.trellis/config.yaml` and supported files under `.trellis/scripts/`.
-2. If `ocr` is unavailable, record `Status: skipped` plus the installation reason and continue. Otherwise run `ocr review --preview --format json --exclude '<patterns>'` first. Inspect `files[]`: no entry with `will_review: true` may have a `.trellis/tasks/`, `.trellis/.runtime/`, or `.trellis/workspace/` path. A preview whose `reviewable_count` is zero is a recorded `skipped` review.
+2. If `ocr` is unavailable, record `Status: skipped` plus the installation reason and continue. Otherwise run `ocr review --preview --format json --exclude '<patterns>'` first. If this PR is already committed, add `--from <base-branch> --to HEAD` on preview and review so a clean worktree is not recorded as skipped. Inspect `files[]`: no entry with `will_review: true` may have a `.trellis/tasks/`, `.trellis/.runtime/`, or `.trellis/workspace/` path. A preview whose `reviewable_count` is zero is a recorded `skipped` review.
 3. Run `ocr llm test` only when preview found reviewable files. If connectivity or configuration fails, record `Status: skipped` with the concrete reason and continue without switching to delegate mode.
-4. Run `ocr review --format json --audience agent --background-file <absolute-task-path>/prd.md --exclude '<patterns>'`. Redirect stdout and stderr to separate temporary files and read both in full; never pipe review output through `head` or `tail`. Do not commit raw OCR output.
+4. Run `ocr review --format json --audience agent --background-file <absolute-task-path>/prd.md --exclude '<patterns>'`, plus `--from <base-branch> --to HEAD` when reviewing a committed PR. Redirect stdout and stderr to separate temporary files and read both in full; never pipe review output through `head` or `tail`. Do not commit raw OCR output.
 5. Treat stdout as the primary result. Prefer `manifest.terminal_state`; otherwise normalize stdout `status` as follows: `complete`/`success` -> `complete`, `partial`/`completed_with_warnings`/`completed_with_errors` -> `partial`, `skipped` -> `skipped`, and all other failed or non-zero-without-result paths -> `failed`. Stderr supplies only failure diagnostics, usage, and session metadata; it never overrides a valid stdout manifest.
 6. For a manifest, require `completed`, `reused`, `failed`, and `waived` item IDs to be pairwise disjoint and their union to equal `selected`. If parsing or this invariant fails, record `Status: failed`. Report all five counts without deriving `completed` by subtraction.
 7. Every unique `comments[]` entry from this single review must be either fixed or rejected. A rejection cites verifiable current code, actual data flow, or test evidence; do not silently discard low-priority comments. After accepted fixes, rerun affected tests and the full-scope checks.
-8. Run OCR exactly once per task. After fixing or rejecting its comments, do not run OCR again; tests and full-scope checks validate the fixes. Workspace mode does not support `--resume`, so explicitly ignore OCR's stderr `retry with: --resume` hint. A partial or failed result remains visible and non-blocking rather than triggering another review.
-9. Keep the normalized status, session ID, coverage counts, and fixed/rejected disposition rows available for the Phase 3.5 PR body. This is advisory: missing configuration, partial coverage, or tool failure is visible but does not block the finish flow.
+8. Run OCR exactly once per pull request that will merge. After fixing or rejecting that review's comments, do not run OCR again on that PR; tests and full-scope checks validate the fixes. A later PR or stage in the same task is a new OCR scope — do not skip it by deferring to a final whole-task review, and do not treat a prior PR's OCR as covering later diffs. Workspace mode does not support `--resume`, so explicitly ignore OCR's stderr `retry with: --resume` hint. A partial or failed result remains visible and non-blocking rather than triggering another review of the same PR.
+9. Keep the normalized status, session ID, coverage counts, and fixed/rejected disposition rows available for **this** PR's Phase 3.5 body. This is advisory: missing configuration, partial coverage, or tool failure is visible but does not block the finish flow.
 
 #### 2.3 Rollback `[on demand]`
 
@@ -825,8 +825,8 @@ base worktree; lifecycle hook failures are non-blocking.
 2. create or reuse its pull request with `gh pr create`, targeting the recorded
    base and including change, validation, risk, and rollback information;
 3. read the complete current PR body, then create or replace only the block from
-   `<!-- trellis-ocr:start -->` through `<!-- trellis-ocr:end -->` with the final
-   Phase 2.2 OCR record. Preserve all content outside the markers, apply the full
+   `<!-- trellis-ocr:start -->` through `<!-- trellis-ocr:end -->` with this
+   PR's Phase 2.2 OCR record. Preserve all content outside the markers, apply the full
    body with `gh pr edit --body-file`, then re-read it with `gh pr view --json body`.
    The block must contain status, `OCR LLM / workspace`, the session ID,
    `completed` / `reused` / `waived` / `failed` / `selected` counts, total/fixed/
@@ -889,7 +889,7 @@ Edit the corresponding step's walkthrough body in the Phase 1 / 2 / 3 sections a
 - No active task must triage first and ask for task-creation consent before creating a Trellis task.
 - Planning must distinguish lightweight PRD-only tasks from complex tasks that require `prd.md`, `design.md`, and `implement.md` before start.
 - Every required execution path must keep the Phase 3.4 commit reminder reachable before `/trellis:finish-work`.
-- Every final Phase 2.2 path must run or explicitly record exactly one local OCR advisory review before Phase 3.3; after disposition and tests, never re-review or use `--resume`.
+- Every PR-bound Phase 2.2 path must run or explicitly record exactly one local OCR advisory review of that PR before its Phase 3.5 OCR block is written; after disposition and tests, never re-review that PR or use `--resume`. One task with several PRs does not collapse to a single whole-task OCR.
 - Every implementation task must keep the base worktree on the base branch, dispatch work by absolute task/worktree paths, and remove the task worktree only after merge is verified.
 
 All tag blocks live in the `## Phase Index` section above, immediately after each phase summary:

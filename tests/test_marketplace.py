@@ -211,8 +211,8 @@ class MarketplaceContractTests(unittest.TestCase):
             "completed_with_warnings",
             "pairwise disjoint",
             "their union to equal `selected`",
-            "Run OCR exactly once per task",
-            "do not run OCR again",
+            "Run OCR exactly once per pull request",
+            "do not run OCR again on that PR",
             "ignore OCR's stderr `retry with: --resume` hint",
         )
         for phrase in required:
@@ -220,7 +220,7 @@ class MarketplaceContractTests(unittest.TestCase):
                 self.assertIn(phrase, self.workflow)
 
         phase_22 = self.workflow.index("#### 2.2 Quality check")
-        final_pass = self.workflow.index("**Final pass (before Phase 3.4 commit)**", phase_22)
+        final_pass = self.workflow.index("**Final pass (before each pull request that will merge)**", phase_22)
         review = self.workflow.index("ocr review --preview", final_pass)
         phase_23 = self.workflow.index("#### 2.3 Rollback", review)
         self.assertLess(final_pass, review)
