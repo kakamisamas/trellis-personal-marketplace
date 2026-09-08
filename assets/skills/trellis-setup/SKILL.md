@@ -21,7 +21,7 @@ A project that already has GC, the PR gate, and this skill still needs setup whe
 Run the release-pinned bootstrap (`v1.4.0` is the minimum release that ships the CodeGraph and diff helpers). Install the workflow and tooling from the same release:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.4.0/scripts/setup.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.4.1/scripts/setup.sh)
 ```
 
 Read the complete report. Do not overwrite an existing PR gate, test CI template, or skill when setup marks it for manual review. Exit code 2 is a non-blocking partial success. Report installed assets, skipped assets, and remaining manual actions as three separate lists. Setup never installs OCR or configures an LLM key; an unavailable CLI is advisory and must remain non-blocking. Do not copy `tests-python.yml` into `.github/workflows/` for unittest-only or non-Python projects; adapt the install command from the project's real test docs.
