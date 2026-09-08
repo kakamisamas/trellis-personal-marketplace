@@ -65,7 +65,7 @@ assert_phase_22_context() {
   }
 }
 assert_phase_22_context 'ocr review --preview --format json'
-assert_phase_22_context 'Run OCR exactly once per task'
+assert_phase_22_context 'Run OCR exactly once per pull request'
 assert_phase_22_context 'do not run OCR again'
 assert_phase_22_context 'does not support `--resume`'
 

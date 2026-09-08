@@ -15,9 +15,10 @@ It keeps the native planning and quality gates and adds these behaviors:
   branch-cleanup flow;
 - a release-pinned setup installs safe merged-task GC, a 3,500-line PR gate,
   the archive lifecycle hook, and a project-local setup skill;
-- the final local quality pass runs advisory Open Code Review (OCR), requires
-  every finding to be fixed or rejected with evidence, and persists the result
-  in the pull-request body;
+- each mergeable pull request runs one advisory Open Code Review (OCR) of that
+  PR's product diff, requires every finding to be fixed or rejected with
+  evidence, and persists the result in that pull-request body; a later PR in
+  the same task is a new review, not a deferred whole-task review;
 - planning and spec updates consult an optional architecture baseline.
 
 The template does not replace or modify Trellis's `trellis-finish-work` skill.
@@ -155,18 +156,20 @@ ocr config model
 ocr llm test
 ```
 
-The workflow calls the OCR CLI directly in workspace mode after the final Phase
-2.2 checks and before the task is committed. Its default design uses OCR's own
-configured LLM as an independent reviewer. `ocr delegate` is an optional lower-
-cost alternative for manual use, but the workflow does not fall back to it
-automatically because that would collapse author and reviewer into the same
-agent context. Official Claude Code or Codex plugins may help invoke OCR
-interactively; they are optional and do not replace the CLI contract above.
+The workflow calls the OCR CLI directly in workspace mode after the PR-bound
+Phase 2.2 checks and before that pull request is merged. If the PR is already
+committed, the review uses `--from <base-branch> --to HEAD`. Its default design
+uses OCR's own configured LLM as an independent reviewer. `ocr delegate` is an
+optional lower-cost alternative for manual use, but the workflow does not fall
+back to it automatically because that would collapse author and reviewer into
+the same agent context. Official Claude Code or Codex plugins may help invoke
+OCR interactively; they are optional and do not replace the CLI contract above.
 
 OCR first previews the supported files, excludes Trellis task/runtime metadata,
 and records `complete`, `partial`, `skipped`, or `failed`. It runs exactly once
-per task; after the agent disposes every finding, tests validate the fixes without
-another OCR call. Workspace reviews never use `--resume`, even if OCR stderr suggests it. The resulting coverage and
+per pull request; after the agent disposes every finding, tests validate the
+fixes without another OCR call on that PR. A later PR in the same task is a new
+review. Workspace reviews never use `--resume`, even if OCR stderr suggests it. The resulting coverage and
 per-finding decisions are written into a marked PR-body section and read back
 before GitHub checks begin. No OCR secret or review job is added to CI.
 
