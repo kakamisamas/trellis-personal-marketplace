@@ -132,9 +132,13 @@ task_rel="$(
 from pathlib import Path
 import sys
 root = Path(sys.argv[1]) / ".trellis" / "tasks"
-dirs = [p for p in root.iterdir() if p.is_dir()]
-assert dirs, f"no task dir under {root}"
-print(dirs[0].relative_to(Path(sys.argv[1])))
+if not root.is_dir():
+    raise SystemExit(f"no task dir under {root}")
+matched = [p for p in root.iterdir() if p.is_dir() and "worktree-smoke" in p.name]
+if not matched:
+    raise SystemExit(f"no worktree-smoke task under {root}")
+newest = max(matched, key=lambda p: p.stat().st_mtime)
+print(newest.relative_to(Path(sys.argv[1])))
 PY
 )"
 task_path="${worktree_path}/${task_rel}"
