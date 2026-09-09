@@ -140,7 +140,7 @@ class MarketplaceContractTests(unittest.TestCase):
         phase_two = self.workflow.index("#### 2.1 Implement")
         phase_three = self.workflow.index("#### 3.5 Wrap-up reminder")
         worktree_add = self.workflow.index("git worktree add", phase_one, phase_two)
-        setup = self.workflow.index("v1.4.0/scripts/setup.sh", worktree_add, phase_two)
+        setup = self.workflow.index("v1.5.0/scripts/setup.sh", worktree_add, phase_two)
         codegraph_prepare = self.workflow.index(
             "trellis_codegraph.py prepare", setup, phase_two
         )
@@ -159,7 +159,7 @@ class MarketplaceContractTests(unittest.TestCase):
 
     def test_gc_baseline_and_breadcrumb_contracts_are_explicit(self) -> None:
         required = (
-            "trellis-personal-marketplace/v1.4.0/scripts/setup.sh",
+            "trellis-personal-marketplace/v1.5.0/scripts/setup.sh",
             "python3 scripts/trellis_gc.py --apply",
             ".trellis/spec/guides/architecture-baseline.md",
             "Decision Log",
@@ -268,7 +268,7 @@ class MarketplaceContractTests(unittest.TestCase):
             "downloads only `workflow.md`",
             "does not copy companion scripts or `.trellis/config.yaml`",
             "Do not attach raw",
-            "v1.4.0/scripts/setup.sh",
+            "v1.5.0/scripts/setup.sh",
             "trellis-spec-marketplace#v1.0.0",
             "no `--force` mode",
             "hook CWD",
@@ -298,7 +298,7 @@ class MarketplaceContractTests(unittest.TestCase):
     def test_release_assets_and_license_are_present(self) -> None:
         self.assertTrue(SETUP.is_file())
         self.assertTrue(GC.is_file())
-        self.assertIn('RELEASE_REF="v1.4.0"', SETUP.read_text(encoding="utf-8"))
+        self.assertIn('RELEASE_REF="v1.5.0"', SETUP.read_text(encoding="utf-8"))
         self.assertIn("MIT License", LICENSE.read_text(encoding="utf-8"))
 
     def test_release_references_stay_aligned(self) -> None:
@@ -370,7 +370,7 @@ class MarketplaceContractTests(unittest.TestCase):
         self.assertIn("python3 scripts/trellis_diff.py --base", (ROOT / "assets" / "ci" / "pr-gate.yml").read_text(encoding="utf-8"))
         match = re.search(r'^readonly RELEASE_REF="([^"]+)"$', setup, re.MULTILINE)
         self.assertIsNotNone(match)
-        self.assertEqual(match.group(1), "v1.4.0")
+        self.assertEqual(match.group(1), "v1.5.0")
 
 
 if __name__ == "__main__":
