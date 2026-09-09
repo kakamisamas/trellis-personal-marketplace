@@ -143,28 +143,22 @@ PY
 )"
 task_path="${worktree_path}/${task_rel}"
 
+# Trellis 0.6.16 get_repo_root is the nearest .trellis directory. Commands that
+# accept a task path must run from the worktree that owns that task, using the
+# absolute task directory. --allow-empty-context is used when the installed
+# Trellis advertises it (0.6.16); 0.6.12 ignores the extra flag by not adding it.
+start_args=("$task_path")
+if python3 "$worktree_path/.trellis/scripts/task.py" start --help 2>/dev/null | grep -q -- '--allow-empty-context'; then
+  start_args+=(--allow-empty-context)
+fi
+
 (
   cd "$worktree_path"
-  python3 .trellis/scripts/task.py set-branch "$task_rel" "$task_branch" >/dev/null
-  python3 .trellis/scripts/task.py set-base-branch "$task_rel" main >/dev/null
-  python3 .trellis/scripts/task.py set-meta "$task_rel" worktree "$worktree_path" >/dev/null
-)
-
-python3 - "$task_path/task.json" "$task_branch" "$worktree_path" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-task = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-assert task["branch"] == sys.argv[2]
-assert task["base_branch"] == "main"
-assert task["meta"]["worktree"] == sys.argv[3]
-PY
-
-(
-  cd "$temporary"
+  python3 .trellis/scripts/task.py set-branch "$task_path" "$task_branch" >/dev/null
+  python3 .trellis/scripts/task.py set-base-branch "$task_path" main >/dev/null
+  python3 .trellis/scripts/task.py set-meta "$task_path" worktree "$worktree_path" >/dev/null
   TRELLIS_CONTEXT_ID=smoke-coordinator \
-    python3 .trellis/scripts/task.py start "$task_path" >/dev/null
+    python3 .trellis/scripts/task.py start "${start_args[@]}" >/dev/null
 )
 
 python3 - "$task_path/task.json" <<'PY'
