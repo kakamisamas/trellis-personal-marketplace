@@ -68,6 +68,7 @@ assert_phase_22_context 'ocr review --preview --format json'
 assert_phase_22_context 'Run OCR exactly once per pull request'
 assert_phase_22_context 'do not run OCR again'
 assert_phase_22_context 'does not support `--resume`'
+assert_phase_22_context 'run handoff-check'
 
 git -C "$temporary" config user.name "Trellis Smoke"
 git -C "$temporary" config user.email "trellis-smoke@example.invalid"
@@ -116,13 +117,26 @@ if ! git -C "$worktree_path" diff --cached --quiet; then
   git -C "$worktree_path" commit -q -m "test: install marketplace tooling"
 fi
 
-task_rel="$({
+(
   cd "$worktree_path"
   python3 .trellis/scripts/init_developer.py smoke >/dev/null
+  create_args=("Worktree smoke" --slug worktree-smoke)
+  if python3 .trellis/scripts/task.py create --help 2>/dev/null | grep -q -- '--description'; then
+    create_args+=(--description "Worktree smoke")
+  fi
   TRELLIS_CONTEXT_ID=smoke-task \
-    python3 .trellis/scripts/task.py create \
-      "Worktree smoke" --slug worktree-smoke
-})"
+    python3 .trellis/scripts/task.py create "${create_args[@]}" >/dev/null
+)
+task_rel="$(
+  python3 - "$worktree_path" <<'PY'
+from pathlib import Path
+import sys
+root = Path(sys.argv[1]) / ".trellis" / "tasks"
+dirs = [p for p in root.iterdir() if p.is_dir()]
+assert dirs, f"no task dir under {root}"
+print(dirs[0].relative_to(Path(sys.argv[1])))
+PY
+)"
 task_path="${worktree_path}/${task_rel}"
 
 (
