@@ -66,6 +66,17 @@ only after the squash merge and remote-branch deletion are verified.
 - optional Open Code Review 1.9.4 or later (`ocr`) plus Git 2.41 or later for
   local AI review; missing or unconfigured OCR is recorded but does not block
   the workflow
+- optional local `herdr-dispatch` skill at
+  `~/.skills-manager/skills/herdr-dispatch/SKILL.md` when a task enables full
+  card-run mode; marketplace transport still downloads only `workflow.md` and
+  does not copy that skill. Missing skill is an error only for card-run tasks.
+  `python3 ~/.skills-manager/skills/herdr-dispatch/scripts/herdr_dispatch.py run doctor`
+  reports the missing entry. Ordinary Trellis tasks without card-run mode are
+  unaffected.
+
+The published install pin remains `v1.4.0` (see commands below). A later
+template version that documents card-run pointers is **not** remotely
+installable until that tag exists. Do not run unpublished version refs.
 
 ## Install in a new project
 
