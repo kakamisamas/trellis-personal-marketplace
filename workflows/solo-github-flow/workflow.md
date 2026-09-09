@@ -210,6 +210,7 @@ Keep all planning files and commands inside the task's recorded worktree. The ba
 Multi-deliverable scope: consider a parent task plus independently verifiable child worktrees; dependencies must be written in child artifacts, not implied by tree position.
 Test CI planning gate: read existing GitHub workflow `run:` steps and confirm at least one check executes the project's real test command; a size/line-count gate is not enough, and a file named tests.yml is not enough. If missing, configure a test workflow in the task worktree from the project's actual test docs; copy `.trellis/templates/ci/tests-python.yml` only for matching Python/pytest projects, never blindly for unittest-only or non-Python stacks.
 Sub-agent mode: curate `implement.jsonl` and `check.jsonl` as spec/research manifests before start.
+Optional contract review: a herdr-dispatch `contract_review` card may audit the PRD/design/acceptance before `task.py start`. That review does not start implementation.
 [/workflow-state:planning]
 
 <!-- Per-turn breadcrumb: shown throughout Phase 1 when codex.dispatch_mode=inline.
@@ -228,6 +229,7 @@ Keep all planning files and commands inside the task's recorded worktree. The ba
 Multi-deliverable scope: consider a parent task plus independently verifiable child worktrees; dependencies must be written in child artifacts, not implied by tree position.
 Test CI planning gate: read existing GitHub workflow `run:` steps and confirm at least one check executes the project's real test command; a size/line-count gate is not enough, and a file named tests.yml is not enough. If missing, configure a test workflow in the task worktree from the project's actual test docs; copy `.trellis/templates/ci/tests-python.yml` only for matching Python/pytest projects, never blindly for unittest-only or non-Python stacks.
 Inline mode: skip jsonl curation; Phase 2 reads artifacts/specs via `trellis-before-dev`.
+Optional contract review: a herdr-dispatch `contract_review` card may audit the PRD/design/acceptance before `task.py start`. That review does not start implementation.
 [/workflow-state:planning-inline]
 
 ### Phase 2: Execute
@@ -253,6 +255,7 @@ The sub-agent may read and modify files and run commands only inside `Workdir`. 
 [workflow-state:in_progress]
 Tools: `trellis-implement` / `trellis-research` are sub-agent types only (Task/Agent tool, NOT Skill; there is no skill by these names). `trellis-update-spec` is a skill. `trellis-check` exists as both; prefer the Agent form when verifying after code changes.
 Flow: `trellis-implement` (one behavior at a time: red test -> green implementation -> refactor while green) -> `trellis-check` -> PR-bound Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
+If this parent task has a saved herdr-dispatch full-run authorization, split and dispatch cards via `~/.skills-manager/skills/herdr-dispatch/SKILL.md` instead of `trellis-implement`; keep `trellis-check` as the writable project check after the executor releases the pen. After the completion report, continue Phase 3.4-3.5 without waiting for another “结束工作” / “收尾”. Single execute or single review dispatch does not create that authorization. If the local skill is missing, `run doctor` reports the missing entry; ordinary Trellis tasks without card-run mode are unaffected.
 Line budget: 2500 changed lines for this task (CI hard limit 3500). After each behavior slice, report the cumulative changed-line count from `python3 scripts/trellis_diff.py --base <base-branch>`. If approaching the budget, finish and open the PR first; remaining work becomes a new subtask.
 If CodeGraph prepare was not skipped, run a health check / necessary `python3 scripts/trellis_codegraph.py sync --worktree <absolute-worktree-path>` before first index use and before the PR-bound Phase 2.2; after source edits, sync before relying on symbols or call paths. When CodeGraph was skipped, do not force the CLI.
 A PR-bound Phase 2.2 is not green until every OCR comment is fixed or rejected with verifiable evidence, or an unavailable/partial/failed review is recorded for that PR body. OCR runs exactly once per pull request: never use `--resume` and never re-review that PR after fixes. A later PR in the same task is a new review, not a deferred whole-task review. trellis-check stays repeatable.
@@ -268,6 +271,7 @@ Dispatch prompt starts with absolute `Active task:` and `Workdir:` lines. Only c
 
 [workflow-state:in_progress-inline]
 Flow: `trellis-before-dev` -> choose one behavior -> red test -> green implementation -> refactor while green -> `trellis-check` -> validation -> PR-bound Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
+If this parent task has a saved herdr-dispatch full-run authorization, split and run cards via `~/.skills-manager/skills/herdr-dispatch/SKILL.md` in this session instead of repeating native implement dispatch. After the completion report, continue Phase 3.4-3.5 without waiting for another “结束工作” / “收尾”. Single execute or single review dispatch does not create that authorization.
 If CodeGraph prepare was not skipped, run a health check / necessary `python3 scripts/trellis_codegraph.py sync --worktree <absolute-worktree-path>` before first index use and before the PR-bound Phase 2.2; after source edits, sync before relying on symbols or call paths. When CodeGraph was skipped, do not force the CLI. CodeGraph MCP `projectPath` and CLI paths must be the task worktree absolute path.
 A PR-bound Phase 2.2 is not green until every OCR comment is fixed or rejected with verifiable evidence, or an unavailable/partial/failed review is recorded for that PR body. OCR runs exactly once per pull request: never use `--resume` and never re-review that PR after fixes. A later PR in the same task is a new review, not a deferred whole-task review. trellis-check stays repeatable.
 During Phase 3.3, update the architecture baseline Decision Log when module boundaries, dependency direction, or recorded data flow changed. During Phase 3.5, use `scripts/trellis_gc.py --apply` for verified cleanup.
@@ -311,6 +315,7 @@ When a user request matches one of these intents inside an active task, route fi
 [Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
 
 - Planning or unclear requirements -> `trellis-brainstorm`.
+- If the current parent task has a saved herdr-dispatch full-run authorization, load `~/.skills-manager/skills/herdr-dispatch/SKILL.md` and dispatch cards there; do not also dispatch `trellis-implement`.
 - `in_progress` implementation/check -> dispatch `trellis-implement` / `trellis-check`.
 - Repeated debugging -> `trellis-break-loop`; spec updates -> `trellis-update-spec`.
 
@@ -319,6 +324,7 @@ When a user request matches one of these intents inside an active task, route fi
 [codex-inline, Kilo, Antigravity, Devin]
 
 - Planning or unclear requirements -> `trellis-brainstorm`.
+- If the current parent task has a saved herdr-dispatch full-run authorization, load `~/.skills-manager/skills/herdr-dispatch/SKILL.md` and run cards in this session; do not also dispatch `trellis-implement`.
 - Before editing -> `trellis-before-dev`; after editing -> `trellis-check`.
 - Repeated debugging -> `trellis-break-loop`; spec updates -> `trellis-update-spec`.
 
@@ -589,6 +595,12 @@ the status transition still succeeded but the pointer did not persist. Continue
 from the captured absolute paths; retry only after a stable context key becomes
 available.
 
+When the user says 开始 and enables full card-run mode, record a herdr-dispatch
+`authorization.kind=full_run` run on this parent task. That authorization covers
+commit, PR, merge, archive, and cleanup. Do not create a native Trellis child
+task per card, and do not call `task.py create`, `task.py start`, or archive per
+card. Cards are herdr-dispatch records, not Trellis lifecycle objects.
+
 #### 1.5 Completion criteria
 
 | Condition | Required |
@@ -596,6 +608,7 @@ available.
 | `prd.md` exists | ✅ |
 | User confirms task should enter implementation | ✅ |
 | `task.py start` has been run (status = in_progress) | ✅ |
+| Full card-run authorization recorded when that mode is enabled | ✅ |
 | `research/` has artifacts (complex tasks) | recommended |
 | `design.md` exists (complex tasks) | ✅ |
 | `implement.md` exists (complex tasks) | ✅ |
@@ -615,6 +628,16 @@ available.
 Goal: turn reviewed planning artifacts into code that passes quality checks.
 
 #### 2.1 Implement `[required · repeatable]`
+
+If full card-run mode is enabled, the main session is the herdr-dispatch
+controller: split cards, isolate resources, dispatch ready cards, collect
+results, ingest artifacts, and accept cards. External executors receive
+absolute `Active task:` and `Workdir:` lines plus the full card request; they
+implement the assigned card only and must not recurse into splitting, user
+approvals, or wrap-up. Parallel card worktrees read parent PRD/design from the
+absolute `Active task` path or a controlled snapshot, not from local
+`task.py current`. If full card-run mode is not enabled, keep the native
+implement path below.
 
 Run one behavior slice at a time. Do not write all tests first and do not implement multiple behaviors before seeing a failing test.
 
@@ -690,6 +713,14 @@ The platform prelude auto-handles the context load requirement:
 [/codex-inline, Kilo, Antigravity, Devin]
 
 #### 2.2 Quality check `[required · repeatable]`
+
+In full card-run mode, run `trellis-check` only after the executor has released
+the write lock (`run handoff-check`). The check agent is then the unique writer.
+Do not let a check agent and the original executor write the same worktree at
+the same time. Check repairs become new commits on the card; if the original
+round already published, record a new writable round and a new head. Independent
+review remains read-only. OCR stays once per pull request after the PR-bound
+full-scope check, not once per card commit.
 
 [Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
 
@@ -791,6 +822,11 @@ Present the concise completion report defined in **User-Facing Reports**, then
 stop. The user's reply “结束工作” or “收尾” is one-shot authorization that both
 accepts the implementation and authorizes all remaining mechanical finish
 actions in steps 3.4 and 3.5. Requested implementation changes return to Phase 2.
+If this task already has saved herdr-dispatch full-run authorization from the
+user's 开始, that record is the one-shot authorization; present the report and
+continue 3.4–3.5. Do not wait for another 收尾. `trellis-wrap-up` also recognizes
+that saved authorization. Single execute or single review dispatch does not
+upgrade into this authorization.
 
 After that authorization:
 
