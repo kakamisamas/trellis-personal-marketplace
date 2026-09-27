@@ -74,7 +74,7 @@ only after the squash merge and remote-branch deletion are verified.
   reports the missing entry. Ordinary Trellis tasks without card-run mode are
   unaffected.
 
-The release commands below target `v1.5.0`. A version is not remotely
+The release commands below target `v1.5.1`. A version is not remotely
 installable until that tag exists. Do not run unpublished version refs.
 
 ## Install in a new project
@@ -82,7 +82,7 @@ installable until that tag exists. Do not run unpublished version refs.
 ```bash
 trellis init --yes --user <name> --codex \
   --workflow solo-github-flow \
-  --workflow-source gh:kakamisamas/trellis-personal-marketplace#v1.5.0
+  --workflow-source gh:kakamisamas/trellis-personal-marketplace#v1.5.1
 ```
 
 Select the platform flags your project actually uses; `--codex` is only an
@@ -94,10 +94,10 @@ List the remote templates, then switch:
 
 ```bash
 trellis workflow --list \
-  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.5.0
+  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.5.1
 
 trellis workflow \
-  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.5.0 \
+  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.5.1 \
   --template solo-github-flow
 ```
 
@@ -105,7 +105,7 @@ If `.trellis/workflow.md` has local edits, preview the replacement first:
 
 ```bash
 trellis workflow \
-  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.5.0 \
+  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.5.1 \
   --template solo-github-flow \
   --create-new
 ```
@@ -123,8 +123,8 @@ Existing projects must run the installer to adopt these helpers; publishing a
 marketplace release does not upgrade downstream projects automatically.
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.5.0/scripts/setup.sh) --dry-run
-bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.5.0/scripts/setup.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.5.1/scripts/setup.sh) --dry-run
+bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.5.1/scripts/setup.sh)
 ```
 
 The installer manages these targets:
@@ -199,7 +199,7 @@ Initialize Trellis and install the architecture baseline in one command:
 
 ```bash
 trellis init --yes --user <name> --codex \
-  --registry gh:kakamisamas/trellis-personal-marketplace#v1.5.0 \
+  --registry gh:kakamisamas/trellis-personal-marketplace#v1.5.1 \
   --template solo-baseline
 ```
 
@@ -215,7 +215,7 @@ already exist:
 
 ```bash
 trellis init --yes --user <name> --codex \
-  --registry gh:kakamisamas/trellis-personal-marketplace#v1.5.0 \
+  --registry gh:kakamisamas/trellis-personal-marketplace#v1.5.1 \
   --template solo-baseline \
   --append
 ```
@@ -243,7 +243,7 @@ is explicitly changed.
 ## Update and rollback
 
 Remote workflow and tooling updates are not applied silently. For a later
-release, replace `v1.5.0` with the new immutable tag, preview the workflow with
+release, replace `v1.5.1` with the new immutable tag, preview the workflow with
 `--create-new`, review the installer dry-run and diffs, then switch deliberately.
 
 To return to Trellis's bundled workflow:
