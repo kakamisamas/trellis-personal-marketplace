@@ -64,7 +64,7 @@ class HerdrCardWorkflowTests(unittest.TestCase):
             "dispatches exactly one `trellis-check` sub-agent before handing off",
             block,
         )
-        self.assertIn("The controller then accepts the handoff", block)
+        self.assertIn("The controller then verifies the handoff against every acceptance item", block)
         self.assertIn("same executor session", block)
         self.assertIn("run handoff-check", block)
         self.assertNotIn("after the executor releases the pen", self.workflow)
