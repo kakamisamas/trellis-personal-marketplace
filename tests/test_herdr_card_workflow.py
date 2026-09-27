@@ -56,6 +56,23 @@ class HerdrCardWorkflowTests(unittest.TestCase):
         self.assertIn("Run OCR exactly once per pull request", self.workflow)
         self.assertIn("not once per card commit", self.workflow)
 
+    def test_executor_checks_before_handoff(self) -> None:
+        phase_22 = self.workflow.index("#### 2.2 Quality check")
+        phase_23 = self.workflow.index("#### 2.3 Rollback", phase_22)
+        block = self.workflow[phase_22:phase_23]
+        self.assertIn(
+            "dispatches exactly one `trellis-check` sub-agent before handing off",
+            block,
+        )
+        self.assertIn("The controller then verifies the handoff against every acceptance item", block)
+        self.assertIn("same executor session", block)
+        self.assertIn("run handoff-check", block)
+        self.assertNotIn("after the executor releases the pen", self.workflow)
+        self.assertNotIn(
+            "run `trellis-check` only after the executor has released",
+            self.workflow,
+        )
+
     def test_readme_does_not_claim_unpublished_install(self) -> None:
         plain = self.readme.replace("*", "")
         self.assertIn("is not remotely", plain)

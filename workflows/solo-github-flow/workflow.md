@@ -254,13 +254,13 @@ The sub-agent may read and modify files and run commands only inside `Workdir`. 
 
 [workflow-state:in_progress]
 Tools: `trellis-implement` / `trellis-research` are sub-agent types only (Task/Agent tool, NOT Skill; there is no skill by these names). `trellis-update-spec` is a skill. `trellis-check` exists as both; prefer the Agent form when verifying after code changes.
-Flow: `trellis-implement` (one behavior at a time: red test -> green implementation -> refactor while green) -> `trellis-check` -> PR-bound Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
-If this parent task has a saved herdr-dispatch full-run authorization, split and dispatch cards via `~/.skills-manager/skills/herdr-dispatch/SKILL.md` instead of `trellis-implement`; keep `trellis-check` as the writable project check after the executor releases the pen. After the completion report, continue Phase 3.4-3.5 without waiting for another “结束工作” / “收尾”. Single execute or single review dispatch does not create that authorization. If the local skill is missing, `run doctor` reports the missing entry; ordinary Trellis tasks without card-run mode are unaffected.
+Flow (when full card-run mode is not enabled): `trellis-implement` (one behavior at a time: red test -> green implementation -> refactor while green) -> `trellis-check` -> PR-bound Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
+If this parent task has a saved herdr-dispatch full-run authorization, split and dispatch cards via `~/.skills-manager/skills/herdr-dispatch/SKILL.md` instead of `trellis-implement`. The executor is the main session of the dispatched window, not a `trellis-implement` sub-agent, and dispatches exactly one `trellis-check` before handing off. The controller verifies the handoff against the card's acceptance items itself and does not dispatch another `trellis-implement` or `trellis-check`. The native implement/check dispatch in this block does not apply to that card. After the completion report, continue Phase 3.4-3.5 without waiting for another “结束工作” / “收尾”. Single execute or single review dispatch does not create that authorization. If the local skill is missing, `run doctor` reports the missing entry; ordinary Trellis tasks without card-run mode are unaffected.
 Line budget: 2500 changed lines for this task (CI hard limit 3500). After each behavior slice, report the cumulative changed-line count from `python3 scripts/trellis_diff.py --base <base-branch>`. If approaching the budget, finish and open the PR first; remaining work becomes a new subtask.
 If CodeGraph prepare was not skipped, run a health check / necessary `python3 scripts/trellis_codegraph.py sync --worktree <absolute-worktree-path>` before first index use and before the PR-bound Phase 2.2; after source edits, sync before relying on symbols or call paths. When CodeGraph was skipped, do not force the CLI.
 A PR-bound Phase 2.2 is not green until every OCR comment is fixed or rejected with verifiable evidence, or an unavailable/partial/failed review is recorded for that PR body. OCR runs exactly once per pull request: never use `--resume` and never re-review that PR after fixes. A later PR in the same task is a new review, not a deferred whole-task review. trellis-check stays repeatable.
 During Phase 3.3, update the architecture baseline Decision Log when module boundaries, dependency direction, or recorded data flow changed. During Phase 3.5, use `scripts/trellis_gc.py --apply` for verified cleanup.
-Main-session default: dispatch implement/check sub-agents into the task's recorded worktree. Sub-agent self-exemption: if already running as `trellis-implement`, do NOT spawn another `trellis-implement` or `trellis-check`; if already running as `trellis-check`, do NOT spawn another `trellis-check` or `trellis-implement`. Dispatch is main session only.
+Outside full card-run mode, the main session dispatches implement/check sub-agents into the task's recorded worktree. Sub-agent self-exemption: if already running as `trellis-implement`, do NOT spawn another `trellis-implement` or `trellis-check`; if already running as `trellis-check`, do NOT spawn another `trellis-check` or `trellis-implement`. Dispatch is main session only.
 Dispatch prompt starts with absolute `Active task:` and `Workdir:` lines. Only change files under `Workdir`. CodeGraph MCP `projectPath` and CLI paths must equal that `Workdir`. Read context: jsonl entries -> `prd.md` -> `design.md if present` -> `implement.md if present`.
 [/workflow-state:in_progress]
 
@@ -270,8 +270,8 @@ Dispatch prompt starts with absolute `Active task:` and `Workdir:` lines. Only c
      instead of dispatching sub-agents. -->
 
 [workflow-state:in_progress-inline]
-Flow: `trellis-before-dev` -> choose one behavior -> red test -> green implementation -> refactor while green -> `trellis-check` -> validation -> PR-bound Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
-If this parent task has a saved herdr-dispatch full-run authorization, split and run cards via `~/.skills-manager/skills/herdr-dispatch/SKILL.md` in this session instead of repeating native implement dispatch. After the completion report, continue Phase 3.4-3.5 without waiting for another “结束工作” / “收尾”. Single execute or single review dispatch does not create that authorization.
+Flow (when full card-run mode is not enabled): `trellis-before-dev` -> choose one behavior -> red test -> green implementation -> refactor while green -> `trellis-check` -> validation -> PR-bound Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
+If this parent task has a saved herdr-dispatch full-run authorization, split and run cards via `~/.skills-manager/skills/herdr-dispatch/SKILL.md` in this session instead of repeating native implement dispatch. The executor is the main session of the dispatched window and dispatches exactly one `trellis-check` before handing off. This session verifies the handoff against the card's acceptance items itself and does not dispatch another `trellis-implement` or `trellis-check`. After the completion report, continue Phase 3.4-3.5 without waiting for another “结束工作” / “收尾”. Single execute or single review dispatch does not create that authorization.
 If CodeGraph prepare was not skipped, run a health check / necessary `python3 scripts/trellis_codegraph.py sync --worktree <absolute-worktree-path>` before first index use and before the PR-bound Phase 2.2; after source edits, sync before relying on symbols or call paths. When CodeGraph was skipped, do not force the CLI. CodeGraph MCP `projectPath` and CLI paths must be the task worktree absolute path.
 A PR-bound Phase 2.2 is not green until every OCR comment is fixed or rejected with verifiable evidence, or an unavailable/partial/failed review is recorded for that PR body. OCR runs exactly once per pull request: never use `--resume` and never re-review that PR after fixes. A later PR in the same task is a new review, not a deferred whole-task review. trellis-check stays repeatable.
 During Phase 3.3, update the architecture baseline Decision Log when module boundaries, dependency direction, or recorded data flow changed. During Phase 3.5, use `scripts/trellis_gc.py --apply` for verified cleanup.
@@ -315,8 +315,8 @@ When a user request matches one of these intents inside an active task, route fi
 [Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
 
 - Planning or unclear requirements -> `trellis-brainstorm`.
-- If the current parent task has a saved herdr-dispatch full-run authorization, load `~/.skills-manager/skills/herdr-dispatch/SKILL.md` and dispatch cards there; do not also dispatch `trellis-implement`.
-- `in_progress` implementation/check -> dispatch `trellis-implement` / `trellis-check`.
+- If the current parent task has a saved herdr-dispatch full-run authorization, load `~/.skills-manager/skills/herdr-dispatch/SKILL.md` and dispatch cards there; do not also dispatch `trellis-implement` or a controller-side `trellis-check`. The executor dispatches exactly one `trellis-check` before handing off, and the controller verifies that handoff itself.
+- When full card-run mode is not enabled, `in_progress` implementation/check -> dispatch `trellis-implement` / `trellis-check`.
 - Repeated debugging -> `trellis-break-loop`; spec updates -> `trellis-update-spec`.
 
 [/Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
@@ -324,8 +324,8 @@ When a user request matches one of these intents inside an active task, route fi
 [codex-inline, Kilo, Antigravity, Devin]
 
 - Planning or unclear requirements -> `trellis-brainstorm`.
-- If the current parent task has a saved herdr-dispatch full-run authorization, load `~/.skills-manager/skills/herdr-dispatch/SKILL.md` and run cards in this session; do not also dispatch `trellis-implement`.
-- Before editing -> `trellis-before-dev`; after editing -> `trellis-check`.
+- If the current parent task has a saved herdr-dispatch full-run authorization, load `~/.skills-manager/skills/herdr-dispatch/SKILL.md` and run cards in this session; do not also dispatch `trellis-implement` or a controller-side `trellis-check`. The executor dispatches exactly one `trellis-check` before handing off, and this session verifies that handoff itself.
+- When full card-run mode is not enabled, before editing -> `trellis-before-dev`; after editing -> `trellis-check`.
 - Repeated debugging -> `trellis-break-loop`; spec updates -> `trellis-update-spec`.
 
 [/codex-inline, Kilo, Antigravity, Devin]
@@ -631,10 +631,21 @@ Goal: turn reviewed planning artifacts into code that passes quality checks.
 
 If full card-run mode is enabled, the main session is the herdr-dispatch
 controller: split cards, isolate resources, dispatch ready cards, collect
-results, ingest artifacts, and accept cards. External executors receive
-absolute `Active task:` and `Workdir:` lines plus the full card request; they
-implement the assigned card only and must not recurse into splitting, user
-approvals, or wrap-up. Parallel card worktrees read parent PRD/design from the
+results, ingest artifacts, and accept cards. Do not dispatch
+`trellis-implement` for a card. External executors receive absolute
+`Active task:` and `Workdir:` lines plus the full card request. They are the
+main session of the dispatched window, not a `trellis-implement` sub-agent.
+They implement the assigned card, run its tests, then dispatch exactly one
+`trellis-check` in that same session before handing off (Phase 2.2). They
+must not recurse into splitting, user approvals, wrap-up, or another
+herdr-dispatch. With no independent reviewer, the controller verifies the
+handoff against the card's acceptance items and accepts or rejects it. When an independent reviewer is declared, that read-only review
+runs after the handoff and before acceptance. If acceptance or that review
+fails, the controller returns the card to the same executor session for
+rework. The controller owns rework routing, and the executor window stays
+until the card is accepted; follow
+`~/.skills-manager/skills/herdr-dispatch/SKILL.md`.
+Parallel card worktrees read parent PRD/design from the
 absolute `Active task` path or a controlled snapshot, not from local
 `task.py current`. If full card-run mode is not enabled, keep the native
 implement path below.
@@ -714,13 +725,43 @@ The platform prelude auto-handles the context load requirement:
 
 #### 2.2 Quality check `[required · repeatable]`
 
-In full card-run mode, run `trellis-check` only after the executor has released
-the write lock (`run handoff-check`). The check agent is then the unique writer.
-Do not let a check agent and the original executor write the same worktree at
-the same time. Check repairs become new commits on the card; if the original
-round already published, record a new writable round and a new head. Independent
-review remains read-only. OCR stays once per pull request after the PR-bound
-full-scope check, not once per card commit.
+In full card-run mode, the executor is the main session of the dispatched
+window, not a `trellis-implement` sub-agent. It implements the card, runs its
+tests, then dispatches exactly one `trellis-check` sub-agent before handing off.
+That check covers the card's `base..HEAD` and in-scope uncommitted content.
+The executor fixes every finding and commits those fixes on the card before
+the handoff. The handoff includes the check record.
+The controller then verifies the handoff against every acceptance item of the card and accepts or rejects it.
+A rejection lists every failed item at once; items that could not be verified because the work does not run are named with the reason.
+It does not dispatch `trellis-implement` again, and it does not dispatch
+another `trellis-check` while that executor session still exists.
+
+With no independent reviewer, that verification follows the handoff. When an
+independent reviewer is declared, that read-only review runs after the
+handoff and before acceptance. If acceptance or that read-only review fails,
+the controller returns the card to the same executor session for rework. On
+rework, that same session again dispatches one `trellis-check` before the
+next handoff. The controller owns rework routing, and the executor window
+stays until the card is accepted; both rules are in
+`~/.skills-manager/skills/herdr-dispatch/SKILL.md`.
+
+One worktree has one writer at a time. The check sub-agent runs inside the
+executor session and writes only in sequence with the executor, never in
+parallel with the executor or any other writer. Its prompt starts with
+`Active task: <absolute task path>` and `Workdir: <absolute worktree path>`
+on separate lines, limits every operation to `Workdir`, states that it is
+already the `trellis-check` sub-agent, and tells it to review and fix
+directly without spawning another `trellis-check` or `trellis-implement`.
+
+Do not edit a handoff that is already published. Fixes made before the
+handoff are new commits on the card and travel with that handoff.
+`run handoff-check` is only the remedy when the executor session is gone and
+the check still has to be done. Repairs on that remedy are new commits,
+recorded as a new writable round and a new head. Independent review stays
+read-only. OCR stays once per pull request after the PR-bound full-scope
+check, not once per card and not once per card commit.
+
+Review scope: the main session supplies the declared scope and verified `base_sha` / `head_sha`. Inspect `git diff <base_sha> <head_sha> -- <scope>`. If only a target branch is available, derive the base with `git merge-base <base-branch> <head>` or use `git diff <base-branch>...<head> -- <scope>`; do not count target-branch-only changes as task changes. A task check also inspects in-scope staged and unstaged diffs plus the contents of untracked files (`git status --short --untracked-files=all`), unless explicitly limited to a fixed commit snapshot. Read-only review limits writes, not declared coverage. Report an unverifiable baseline; an empty working-tree diff does not prove there are no submitted changes.
 
 [Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
 

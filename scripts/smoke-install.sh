@@ -69,6 +69,9 @@ assert_phase_22_context 'Run OCR exactly once per pull request'
 assert_phase_22_context 'do not run OCR again'
 assert_phase_22_context 'does not support `--resume`'
 assert_phase_22_context 'run handoff-check'
+assert_phase_22_context 'dispatches exactly one `trellis-check` sub-agent before handing off'
+assert_phase_22_context 'The controller then verifies the handoff against every acceptance item'
+assert_phase_22_context 'same executor session'
 
 git -C "$temporary" config user.name "Trellis Smoke"
 git -C "$temporary" config user.email "trellis-smoke@example.invalid"
