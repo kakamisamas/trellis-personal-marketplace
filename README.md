@@ -37,8 +37,12 @@ authoritative.
   so the coordinating directory stays clean, initializes the worktree-local
   Trellis developer state, then creates the task inside that worktree.
 - A single-card run executes on that task worktree. It does not create a card
-  worktree, an integration worktree, or a new branch. After the merge has
-  landed, only `trellis_gc.py` removes the task worktree.
+  worktree, an integration worktree, or a new branch. Phase 3.5 removes that
+  task worktree and its branch with `trellis_gc.py --apply`. If that script is
+  unavailable, re-confirm the pull request is merged, its head SHA equals the
+  local branch, and the worktree is clean, then remove them by hand with
+  `git worktree remove`, `git branch -D`, and `git worktree prune`. Dispatch
+  `run cleanup` never removes the task worktree.
 - A multi-card run places each card worktree at
   `<repo>-wt/<run_id>/<run_id>-<card>` and the integration worktree at
   `<repo>-wt/<run_id>/<run_id>-integration`.
@@ -193,7 +197,11 @@ with no pull request is `no_pr` and stays for a person to archive.
 
 Before `--apply` archives or pushes, every sync check has to hold. The
 current directory is the main checkout. The current branch is the default
-branch. The worktree is clean. `origin/<default>` is an ancestor of `HEAD`.
+branch. The worktree is clean. Unless `--no-fetch` is passed,
+`git fetch origin <default>` must succeed; a failed fetch is `fetch_failed`,
+the script exits 1, and it archives nothing, pushes nothing, and does not
+reset. `--no-fetch` uses the `origin/<default>` ref already present locally.
+`origin/<default>` is an ancestor of `HEAD`.
 Every commit in `origin/<default>..HEAD` is listed in
 `$(git rev-parse --git-common-dir)/trellis-gc/pending-push.json`, changes
 only paths under `.trellis/tasks/`, and has exactly one parent. If a check
@@ -243,9 +251,9 @@ Without this hook, or when the script is not installed, the guard stays silent a
 When dispatched through herdr-dispatch, the dispatching master session runs in
 a Herdr pane. Executors and reviewers run headless by default (`codex exec`,
 `grok -p`, `cursor-agent -p`); the dispatcher owns their process, exit code,
-and logs. The only worker that stays in a Herdr pane is a `claude`-harness
-worker. `assignee.session: headless | pane` in the task file overrides that
-default. Combining `claude` with `headless` is rejected.
+and logs. By default, the only worker that stays in a Herdr pane is a
+`claude`-harness worker. `assignee.session: headless | pane` in the task file
+overrides that default. Combining `claude` with `headless` is rejected.
 
 ## Configure local OCR review
 
