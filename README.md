@@ -10,9 +10,11 @@ It keeps the native planning and quality gates and adds these behaviors:
   unresolved issues;
 - the coordinating worktree stays on the base branch while each implementation
   task runs in a sibling Git worktree;
-- after the user says “结束工作” or “收尾”, the agent completes the normal
-  commit, native finish-work, PR, CI, squash-merge, worktree cleanup, and
-  branch-cleanup flow;
+- after the user says “开始”, the agent runs through Phase 3.4–3.5 (commit,
+  native finish-work, PR, CI, squash merge, worktree and branch cleanup)
+  without waiting for a wrap-up instruction; it stops only for a product
+  decision, missing credentials or permissions, a CI failure outside the
+  task's scope, or dirty files of unknown ownership;
 - a release-pinned setup installs safe merged-task GC, a 3,500-line PR gate,
   the archive lifecycle hook, and a project-local setup skill;
 - each mergeable pull request runs one advisory Open Code Review (OCR) of that
@@ -29,11 +31,21 @@ authoritative.
 
 - The main AI session keeps the coordinating worktree checked out on the base
   branch for planning, acceptance, merge, and cleanup.
-- Phase 1.0 creates `../<repo>-wt/<MM-DD-slug>` on
-  `task/<MM-DD-slug>` after a read-only coordinating-worktree check, runs
-  first-time setup inside that task worktree so the coordinating directory stays
-  clean, initializes the worktree-local Trellis developer state, then creates
-  the task inside that worktree.
+- Every worktree lives under `<repo>-wt/`. Phase 1.0 creates the task worktree
+  `../<repo>-wt/<MM-DD-slug>` on `task/<MM-DD-slug>` after a read-only
+  coordinating-worktree check, runs first-time setup inside that task worktree
+  so the coordinating directory stays clean, initializes the worktree-local
+  Trellis developer state, then creates the task inside that worktree.
+- A single-card run executes on that task worktree. It does not create a card
+  worktree, an integration worktree, or a new branch. Phase 3.5 removes that
+  task worktree and its branch with `trellis_gc.py --apply`. If that script is
+  unavailable, re-confirm the pull request is merged, its head SHA equals the
+  local branch, and the worktree is clean, then remove them by hand with
+  `git worktree remove`, `git branch -D`, and `git worktree prune`. Dispatch
+  `run cleanup` never removes the task worktree.
+- A multi-card run places each card worktree at
+  `<repo>-wt/<run_id>/<run_id>-<card>` and the integration worktree at
+  `<repo>-wt/<run_id>/<run_id>-integration`.
 - If the coordinating worktree already has a `.codegraph/` index, Phase 1.0
   prepares an independent CodeGraph index in the task worktree with
   `scripts/trellis_codegraph.py` before task creation. It never copies or
@@ -74,7 +86,7 @@ only after the squash merge and remote-branch deletion are verified.
   reports the missing entry. Ordinary Trellis tasks without card-run mode are
   unaffected.
 
-The release commands below target `v1.5.1`. A version is not remotely
+The release commands below target `v1.6.0`. A version is not remotely
 installable until that tag exists. Do not run unpublished version refs.
 
 ## Install in a new project
@@ -82,7 +94,7 @@ installable until that tag exists. Do not run unpublished version refs.
 ```bash
 trellis init --yes --user <name> --codex \
   --workflow solo-github-flow \
-  --workflow-source gh:kakamisamas/trellis-personal-marketplace#v1.5.1
+  --workflow-source gh:kakamisamas/trellis-personal-marketplace#v1.6.0
 ```
 
 Select the platform flags your project actually uses; `--codex` is only an
@@ -94,10 +106,10 @@ List the remote templates, then switch:
 
 ```bash
 trellis workflow --list \
-  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.5.1
+  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.6.0
 
 trellis workflow \
-  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.5.1 \
+  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.6.0 \
   --template solo-github-flow
 ```
 
@@ -105,7 +117,7 @@ If `.trellis/workflow.md` has local edits, preview the replacement first:
 
 ```bash
 trellis workflow \
-  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.5.1 \
+  --marketplace gh:kakamisamas/trellis-personal-marketplace#v1.6.0 \
   --template solo-github-flow \
   --create-new
 ```
@@ -123,8 +135,8 @@ Existing projects must run the installer to adopt these helpers; publishing a
 marketplace release does not upgrade downstream projects automatically.
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.5.1/scripts/setup.sh) --dry-run
-bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.5.1/scripts/setup.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.6.0/scripts/setup.sh) --dry-run
+bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.6.0/scripts/setup.sh)
 ```
 
 The installer manages these targets:
@@ -153,6 +165,95 @@ the primary cleanup path. GC prints every deletion.
 
 After the first PR runs the gate, configure branch protection to require its
 `size-gate` check and enable automatic deletion of merged head branches.
+
+### Merged-task GC
+
+`scripts/trellis_gc.py` defaults to dry-run. `--apply` is what deletes and
+archives. Every deletion prints the evidence that allowed it. Phase 3.5 runs
+it from the base worktree after `turn_guard.py mark-merged`.
+
+A `task/*` branch needs lifecycle evidence before any content proof. Identify
+the task by its task directory name (`.trellis/tasks/<MM-DD-slug>`). The task
+is eligible when that directory is already under `.trellis/tasks/archive/`
+with `status == completed`. When no task file matches the branch, the only
+other accepted lifecycle evidence is the older rule: upstream is `[gone]`,
+the pull request is `MERGED`, and the heads are equal. A match still under
+`.trellis/tasks/` is kept. A match under `archive/` whose status is not
+`completed` is kept and does not proceed to a content proof. The content
+proof is one of `pr`, `ancestor`, `tree_equal`, or `forced` (`--force-gone`
+when upstream is already gone). A Git proof by itself cannot delete the
+branch: the tip of a newly created branch is already an ancestor of the
+default branch.
+
+`card/*` and `run/*` branches and worktrees belong to the dispatch script's
+`run cleanup`. GC only prints `[INFO managed_by=herdr-dispatch run cleanup]`
+for them.
+
+`--archive-idle-days N` (default 7; `0` disables) is the fallback archival.
+It accepts two kinds of completion evidence: `status == completed`, or
+`in_progress` whose `pr_url` pull request is `MERGED`, whose `headRefName`
+equals the task branch, and whose head has landed. An `in_progress` task
+with no pull request is `no_pr` and stays for a person to archive.
+
+Before `--apply` archives or pushes, every sync check has to hold. The
+current directory is the main checkout. The current branch is the default
+branch. The worktree is clean. Unless `--no-fetch` is passed,
+`git fetch origin <default>` must succeed; a failed fetch is `fetch_failed`,
+the script exits 1, and it archives nothing, pushes nothing, and does not
+reset. `--no-fetch` uses the `origin/<default>` ref already present locally.
+`origin/<default>` is an ancestor of `HEAD`.
+Every commit in `origin/<default>..HEAD` is listed in
+`$(git rev-parse --git-common-dir)/trellis-gc/pending-push.json`, changes
+only paths under `.trellis/tasks/`, and has exactly one parent. If a check
+fails, the script exits 1, archives nothing, pushes nothing, and does not
+reset. The pending record is what a later run retries after a failed push.
+A top-level uncommented `session_auto_commit: false` skips new archives.
+An inline comment is cut at the earliest ` #` or tab-`#`, then one pair of
+quotes is removed. `false`, `no`, `0`, and `off` skip new archives; `true`,
+`yes`, `1`, and `on` do not. An unrecognized value is treated as true and
+the script prints
+`[WARN] session_auto_commit: unrecognized value <v>, treating as true`.
+
+## Turn guard
+
+Turn guard is an optional user-level turn guard. When installed, the script
+is `~/.skills-manager/skills/herdr-dispatch/scripts/turn_guard.py`.
+
+Register it for the user. Preview the merge, then install. `install` merges
+idempotently into `~/.claude/settings.json`, `~/.codex/hooks.json`, and
+`~/.grok/hooks/turn-guard.json`. It backs each file up before changing it
+and leaves existing entries in place. `doctor` prints JSON.
+
+```bash
+python3 ~/.skills-manager/skills/herdr-dispatch/scripts/turn_guard.py install --dry-run
+python3 ~/.skills-manager/skills/herdr-dispatch/scripts/turn_guard.py install
+python3 ~/.skills-manager/skills/herdr-dispatch/scripts/turn_guard.py doctor
+```
+
+On the project side, `.trellis/config.yaml` only needs `hooks.after_start`
+and `hooks.after_archive`. `mark-start` writes the task marker when the task
+starts. `mark-archive` updates that marker to the archived `task.json` path
+and does not delete it.
+
+```yaml
+hooks:
+  after_start:
+    - "python3 ~/.skills-manager/skills/herdr-dispatch/scripts/turn_guard.py mark-start 2>/dev/null || true"
+  after_archive:
+    - "python3 ~/.skills-manager/skills/herdr-dispatch/scripts/turn_guard.py mark-archive 2>/dev/null || true"
+```
+
+If turn_guard.py is not installed, skip its calls; the flow is unchanged.
+Without this hook, or when the script is not installed, the guard stays silent and does not block.
+
+### Herdr and headless workers
+
+When dispatched through herdr-dispatch, the dispatching master session runs in
+a Herdr pane. Executors and reviewers run headless by default (`codex exec`,
+`grok -p`, `cursor-agent -p`); the dispatcher owns their process, exit code,
+and logs. By default, the only worker that stays in a Herdr pane is a
+`claude`-harness worker. `assignee.session: headless | pane` in the task file
+overrides that default. Combining `claude` with `headless` is rejected.
 
 ## Configure local OCR review
 
@@ -199,7 +300,7 @@ Initialize Trellis and install the architecture baseline in one command:
 
 ```bash
 trellis init --yes --user <name> --codex \
-  --registry gh:kakamisamas/trellis-personal-marketplace#v1.5.1 \
+  --registry gh:kakamisamas/trellis-personal-marketplace#v1.6.0 \
   --template solo-baseline
 ```
 
@@ -215,7 +316,7 @@ already exist:
 
 ```bash
 trellis init --yes --user <name> --codex \
-  --registry gh:kakamisamas/trellis-personal-marketplace#v1.5.1 \
+  --registry gh:kakamisamas/trellis-personal-marketplace#v1.6.0 \
   --template solo-baseline \
   --append
 ```
@@ -243,7 +344,7 @@ is explicitly changed.
 ## Update and rollback
 
 Remote workflow and tooling updates are not applied silently. For a later
-release, replace `v1.5.1` with the new immutable tag, preview the workflow with
+release, replace `v1.6.0` with the new immutable tag, preview the workflow with
 `--create-new`, review the installer dry-run and diffs, then switch deliberately.
 
 To return to Trellis's bundled workflow:
