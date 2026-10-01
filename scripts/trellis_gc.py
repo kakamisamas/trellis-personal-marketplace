@@ -9,7 +9,9 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
@@ -46,6 +48,16 @@ class TaskRecord:
     archived: bool
     status: str
     branch: str | None
+    pr_url: str | None
+    children: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ArchiveCandidate:
+    name: str
+    age_days: int
+    evidence: str
+    proof: str
 
 
 def run(args: Sequence[str], cwd: str | Path | None = None) -> CommandResult:
@@ -240,12 +252,25 @@ def _read_task(path: Path, *, archived: bool) -> TaskRecord | None:
     name = data.get("name")
     if not isinstance(name, str) or not name:
         name = path.parent.name
+    pr_url = data.get("pr_url")
+    if not isinstance(pr_url, str) or not pr_url.strip():
+        pr_url = None
+    children: list[str] = []
+    raw_children = data.get("children") or []
+    if isinstance(raw_children, list):
+        for item in raw_children:
+            if isinstance(item, str):
+                children.append(item)
+            elif isinstance(item, dict) and isinstance(item.get("name"), str):
+                children.append(item["name"])
     return TaskRecord(
         name=name,
         directory=path.parent,
         archived=archived,
         status=status if isinstance(status, str) else "",
         branch=branch,
+        pr_url=pr_url,
+        children=tuple(children),
     )
 
 
@@ -411,6 +436,442 @@ def removal_target(branch: str, worktree: str | None) -> str:
     return f"local branch {branch}"
 
 
+def session_auto_commit_enabled(main_checkout: str) -> bool:
+    path = Path(main_checkout) / ".trellis" / "config.yaml"
+    if not path.is_file():
+        return True
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return True
+    for raw in lines:
+        if not raw or raw[0].isspace() or raw.lstrip().startswith("#"):
+            continue
+        if raw.startswith("session_auto_commit:"):
+            value = raw.split(":", 1)[1].strip().lower()
+            return value not in {"false", "no", "0", "off"}
+    return True
+
+
+def task_age_days(main_checkout: str, name: str) -> int | None:
+    result = run(
+        ["git", "log", "-1", "--format=%ct", "--", f".trellis/tasks/{name}"],
+        cwd=main_checkout,
+    )
+    if result.returncode != 0 or not result.stdout:
+        return None
+    try:
+        committed = int(result.stdout)
+    except ValueError:
+        return None
+    return int((time.time() - committed) // 86400)
+
+
+def child_is_settled(records: Sequence[TaskRecord], name: str) -> bool:
+    matches = [record for record in records if record.name == name]
+    if not matches:
+        return False
+    if any(not record.archived and record.status not in {"completed", "archived"} for record in matches):
+        return False
+    return any(record.archived or record.status in {"completed", "archived"} for record in matches)
+
+
+def guard_matches_task(markers: Sequence[dict[str, object]], name: str, branch: str | None) -> bool:
+    for marker in markers:
+        if marker.get("task") == name:
+            return True
+        if branch and marker.get("branch") == branch:
+            return True
+    return False
+
+
+def pr_number(pr_url: str) -> str | None:
+    tail = pr_url.rstrip("/").split("/")[-1]
+    return tail if tail.isdigit() else None
+
+
+def commit_exists(root: str, oid: str) -> bool:
+    result = run(["git", "cat-file", "-e", f"{oid}^{{commit}}"], cwd=root)
+    return result.returncode == 0
+
+
+def ensure_pr_head(root: str, oid: str, pr_url: str, *, no_fetch: bool) -> bool:
+    if commit_exists(root, oid):
+        return True
+    if no_fetch:
+        return False
+    number = pr_number(pr_url)
+    if number is None:
+        return False
+    fetched = run(["git", "fetch", "origin", f"refs/pull/{number}/head"], cwd=root)
+    if fetched.returncode != 0:
+        return False
+    return commit_exists(root, oid)
+
+
+def prove_sha(root: str, sha: str, default_branch: str, *, merge_tree_ok: bool) -> tuple[str | None, str]:
+    target = f"origin/{default_branch}"
+    if not commit_exists(root, sha):
+        return None, "sha_missing"
+    if run(["git", "rev-parse", "--verify", "--quiet", f"{target}^{{commit}}"], cwd=root).returncode != 0:
+        return None, "target_missing"
+    ancestor = run(["git", "merge-base", "--is-ancestor", sha, target], cwd=root)
+    if ancestor.returncode == 0:
+        return "ancestor", ""
+    if ancestor.returncode != 1:
+        return None, "git_error"
+    if not merge_tree_ok:
+        return None, "merge_tree_unavailable"
+    merged = run(["git", "merge-tree", "--write-tree", target, sha], cwd=root)
+    if merged.returncode == 1:
+        return None, "conflict"
+    if merged.returncode != 0:
+        return None, "git_error"
+    merged_tree = _merged_tree_oid(merged.stdout)
+    target_tree = run(["git", "rev-parse", f"{target}^{{tree}}"], cwd=root)
+    if target_tree.returncode != 0 or not merged_tree or not target_tree.stdout:
+        return None, "git_error"
+    if merged_tree == target_tree.stdout:
+        return "tree_equal", ""
+    return None, "tree_differs"
+
+
+def read_pr_json(target: str, root: str, fields: str) -> tuple[CommandResult, dict[str, object] | None]:
+    result = run(["gh", "pr", "view", target, "--json", fields], cwd=root)
+    if result.returncode != 0:
+        return result, None
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return result, None
+    return result, payload if isinstance(payload, dict) else None
+
+
+def classify_commit(root: str, sha: str) -> str | None:
+    listed = run(["git", "rev-list", "--parents", "-n1", sha], cwd=root)
+    if listed.returncode != 0:
+        return "unexpected_commit_type"
+    parts = listed.stdout.split()
+    if len(parts) != 2:
+        return "unexpected_commit_type"
+    diff = run(["git", "diff-tree", "-r", "--name-status", "-M", f"{sha}^", sha], cwd=root)
+    if diff.returncode != 0:
+        return "unexpected_commit_type"
+    rows = [line for line in diff.stdout.splitlines() if line.strip()]
+    if not rows:
+        return "unexpected_commit_type"
+    for line in rows:
+        columns = line.split("\t")
+        if len(columns) < 2:
+            return "unexpected_commit_type"
+        for path in columns[1:]:
+            if not path.startswith(".trellis/tasks/"):
+                return "unexpected_commit_paths"
+    return None
+
+
+def pending_file(common: Path) -> Path:
+    return common / "trellis-gc" / "pending-push.json"
+
+
+def read_pending(path: Path) -> list[str]:
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    commits = data.get("commits") if isinstance(data, dict) else None
+    if not isinstance(commits, list):
+        return []
+    return [item for item in commits if isinstance(item, str)]
+
+
+def write_pending(path: Path, default_branch: str, commits: Sequence[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "default_branch": default_branch,
+        "commits": list(commits),
+        "recorded_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def clear_pending(path: Path) -> None:
+    try:
+        path.unlink()
+    except OSError:
+        return
+
+
+def upstream_tracking(root: str, branch: str) -> tuple[str, str]:
+    result = run(
+        [
+            "git",
+            "for-each-ref",
+            f"refs/heads/{branch}",
+            "--format=%(upstream:short)%09%(upstream:track)",
+        ],
+        cwd=root,
+    )
+    if result.returncode != 0 or not result.stdout:
+        return "", ""
+    parts = result.stdout.split("\t")
+    upstream = parts[0] if parts else ""
+    tracking = parts[1] if len(parts) > 1 else ""
+    return upstream, tracking
+
+
+def select_archive_candidates(
+    *,
+    main_checkout: str,
+    root: str,
+    default_branch: str,
+    records: Sequence[TaskRecord],
+    markers: Sequence[dict[str, object]],
+    worktree_by_branch: dict[str, WorktreeInfo],
+    idle_days: int,
+    has_gh: bool,
+    no_fetch: bool,
+    merge_tree_ok: bool,
+) -> tuple[list[ArchiveCandidate], list[tuple[str, str]]]:
+    chosen: list[ArchiveCandidate] = []
+    skipped: list[tuple[str, str]] = []
+    active = sorted((record for record in records if not record.archived), key=lambda record: record.name)
+    for record in active:
+        if record.status == "planning":
+            skipped.append((record.name, "planning"))
+            continue
+        if not record.branch:
+            skipped.append((record.name, "branch_missing"))
+            continue
+        if record.branch == default_branch:
+            skipped.append((record.name, "branch_is_default"))
+            continue
+        evidence = ""
+        proof = ""
+        if record.status == "completed":
+            evidence = "completed"
+            if run(["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{record.branch}"], cwd=root).returncode != 0:
+                skipped.append((record.name, "branch_missing"))
+                continue
+            upstream, tracking = upstream_tracking(root, record.branch)
+            found, detail = prove_content(
+                root,
+                record.branch,
+                default_branch,
+                upstream=upstream,
+                tracking=tracking,
+                has_gh=has_gh,
+                force_gone=False,
+                legacy_only=False,
+                merge_tree_ok=merge_tree_ok,
+            )
+            if found not in {"pr", "ancestor", "tree_equal"}:
+                skipped.append((record.name, f"not_landed {detail}".strip()))
+                continue
+            proof = found
+        elif record.status == "in_progress":
+            if not record.pr_url:
+                skipped.append((record.name, "no_pr"))
+                continue
+            if not has_gh:
+                skipped.append((record.name, "pr_not_merged"))
+                continue
+            _view, payload = read_pr_json(record.pr_url, root, "state,headRefName,headRefOid")
+            state = payload.get("state") if payload else None
+            head_name = payload.get("headRefName") if payload else None
+            head_oid = payload.get("headRefOid") if payload else None
+            if state != "MERGED" or not isinstance(head_oid, str):
+                skipped.append((record.name, "pr_not_merged"))
+                continue
+            if head_name != record.branch:
+                skipped.append((record.name, "pr_branch_mismatch"))
+                continue
+            if not ensure_pr_head(root, head_oid, record.pr_url, no_fetch=no_fetch):
+                skipped.append((record.name, "not_landed head_unavailable"))
+                continue
+            upstream, tracking = upstream_tracking(root, record.branch)
+            local = run(["git", "rev-parse", f"refs/heads/{record.branch}"], cwd=root)
+            if upstream and tracking == "[gone]" and local.returncode == 0 and local.stdout == head_oid:
+                proof = "pr"
+            else:
+                found, detail = prove_sha(root, head_oid, default_branch, merge_tree_ok=merge_tree_ok)
+                if found not in {"ancestor", "tree_equal"}:
+                    skipped.append((record.name, f"not_landed {detail}".strip()))
+                    continue
+                proof = found
+            evidence = "pr_merged"
+        else:
+            skipped.append((record.name, "status_unsupported"))
+            continue
+        if any(not child_is_settled(records, child) for child in record.children):
+            skipped.append((record.name, "children_active"))
+            continue
+        age = task_age_days(main_checkout, record.name)
+        if age is None:
+            skipped.append((record.name, "no_history"))
+            continue
+        if age < idle_days:
+            skipped.append((record.name, "recent"))
+            continue
+        if record.branch in worktree_by_branch:
+            skipped.append((record.name, "worktree_active"))
+            continue
+        status = run(
+            ["git", "status", "--porcelain", "--", f".trellis/tasks/{record.name}"],
+            cwd=main_checkout,
+        )
+        if status.returncode != 0 or status.stdout:
+            skipped.append((record.name, "dirty_task_dir"))
+            continue
+        if guard_matches_task(markers, record.name, record.branch):
+            skipped.append((record.name, "guard_active"))
+            continue
+        chosen.append(ArchiveCandidate(record.name, age, evidence, proof))
+    return chosen, skipped
+
+
+def sync_precondition(
+    root: str,
+    default_branch: str,
+    pending: Sequence[str],
+    *,
+    no_fetch: bool,
+) -> tuple[str | None, list[str]]:
+    git_dir = run(["git", "-C", root, "rev-parse", "--path-format=absolute", "--git-dir"])
+    common = run(["git", "-C", root, "rev-parse", "--path-format=absolute", "--git-common-dir"])
+    if git_dir.returncode != 0 or common.returncode != 0:
+        return "not_main_checkout", []
+    if os.path.realpath(git_dir.stdout) != os.path.realpath(common.stdout):
+        return "not_main_checkout", []
+    head = run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=root)
+    if head.returncode != 0 or head.stdout != default_branch:
+        return "not_default_branch", []
+    status = run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=root)
+    if status.returncode != 0 or status.stdout:
+        return "dirty", []
+    target = f"origin/{default_branch}"
+    if not no_fetch:
+        fetched = run(["git", "fetch", "origin", default_branch], cwd=root)
+        if fetched.returncode != 0:
+            return "fetch_failed", []
+    if run(["git", "rev-parse", "--verify", "--quiet", f"{target}^{{commit}}"], cwd=root).returncode != 0:
+        return "target_missing", []
+    origin_ancestor = run(["git", "merge-base", "--is-ancestor", target, "HEAD"], cwd=root)
+    if origin_ancestor.returncode != 0:
+        ahead = run(["git", "rev-list", f"{target}..HEAD"], cwd=root).stdout.split()
+        behind = run(["git", "rev-list", f"HEAD..{target}"], cwd=root).stdout.split()
+        suspicious = [sha for sha in ahead + behind if sha]
+        head_ancestor = run(["git", "merge-base", "--is-ancestor", "HEAD", target], cwd=root)
+        if head_ancestor.returncode == 0:
+            return "behind_remote", suspicious
+        return "diverged", suspicious
+    ahead_shas = [sha for sha in run(["git", "rev-list", f"{target}..HEAD"], cwd=root).stdout.split() if sha]
+    pending_set = set(pending)
+    unknown = [sha for sha in ahead_shas if sha not in pending_set]
+    if unknown:
+        return "unknown_local_commits", unknown
+    for sha in ahead_shas:
+        reason = classify_commit(root, sha)
+        if reason:
+            return reason, [sha]
+    return None, []
+
+
+def print_sync_failure(reason: str, shas: Sequence[str]) -> None:
+    print(f"[WARN] sync precondition failed: {reason}")
+    print("[WARN] recovery: inspect with git log -p <sha>; this script will not reset")
+    for sha in shas:
+        print(f"[WARN] suspicious {sha}")
+
+
+def push_default(root: str, default_branch: str) -> CommandResult:
+    return run(["git", "push", "origin", default_branch], cwd=root)
+
+
+def run_archive(main_checkout: str, name: str) -> CommandResult:
+    return run(
+        ["python3", ".trellis/scripts/task.py", "archive", name, "--skip-branch-validation"],
+        cwd=main_checkout,
+    )
+
+
+def apply_idle_archives(
+    root: str,
+    main_checkout: str,
+    default_branch: str,
+    plans: Sequence[ArchiveCandidate],
+    *,
+    no_fetch: bool,
+) -> tuple[int, int, list[tuple[str, str]]]:
+    """Push any pending archive commits, then archive and push new ones.
+
+    Returns ``(archived_count, exit_code, extra_skips)``. A failed precondition
+    or push archives nothing further and leaves the pending file in place.
+    """
+    common = git_common_dir(root)
+    path = pending_file(common) if common is not None else None
+    pending = read_pending(path) if path is not None else []
+    skips: list[tuple[str, str]] = []
+    if not plans and not pending:
+        return 0, 0, skips
+    reason, shas = sync_precondition(root, default_branch, pending, no_fetch=no_fetch)
+    if reason:
+        print_sync_failure(reason, shas)
+        return 0, 1, skips
+    if pending and path is not None:
+        pushed = push_default(root, default_branch)
+        if pushed.returncode != 0:
+            detail = pushed.stderr or pushed.stdout or "push failed"
+            print(f"[WARN] pending push: {detail}")
+            return 0, 1, skips
+        clear_pending(path)
+        pending = []
+    if plans and not session_auto_commit_enabled(main_checkout):
+        for item in plans:
+            skips.append((item.name, "auto_commit_disabled"))
+        return 0, 0, skips
+    archived = 0
+    for item in plans:
+        before = run(["git", "rev-parse", "HEAD"], cwd=root)
+        if before.returncode != 0 or not before.stdout:
+            print("[WARN] unexpected_archive_commits")
+            return archived, 1, skips
+        result = run_archive(main_checkout, item.name)
+        if result.returncode != 0:
+            detail = result.stderr or result.stdout or "archive failed"
+            print(f"[WARN] archive {item.name} failed: {detail}")
+            return archived, 1, skips
+        listed = run(["git", "rev-list", f"{before.stdout}..HEAD"], cwd=root)
+        created = [sha for sha in listed.stdout.split() if sha] if listed.returncode == 0 else []
+        if len(created) != 1:
+            print("[WARN] unexpected_archive_commits")
+            return archived, 1, skips
+        illegal = classify_commit(root, created[0])
+        if illegal:
+            print(f"[WARN] {illegal} {created[0]}")
+            return archived, 1, skips
+        pending.append(created[0])
+        if path is not None:
+            write_pending(path, default_branch, pending)
+        archived += 1
+        print(
+            f"[DONE] archived {item.name} "
+            f"(evidence={item.evidence}, proof={item.proof})"
+        )
+    if pending and path is not None:
+        pushed = push_default(root, default_branch)
+        if pushed.returncode != 0:
+            detail = pushed.stderr or pushed.stdout or "push failed"
+            print(f"[WARN] pending push: {detail}")
+            return archived, 1, skips
+        clear_pending(path)
+    return archived, 0, skips
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="GC finished task branches: remove leftover worktrees and local branches."
@@ -432,6 +893,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--force-dirty",
         action="store_true",
         help="remove a dirty worktree when a landed-content proof matches",
+    )
+    parser.add_argument(
+        "--archive-idle-days",
+        type=int,
+        default=7,
+        help="archive idle finished tasks older than N days; 0 disables (default: 7)",
     )
     args = parser.parse_args(argv)
     prefixes = args.prefix if args.prefix else ["task/"]
@@ -541,13 +1008,30 @@ def main(argv: Sequence[str] | None = None) -> int:
                 continue
         planned.append(Candidate(branch, worktree_path, proof))
 
+    checkout = main_worktree or root
+    archive_plans: list[ArchiveCandidate] = []
+    if args.archive_idle_days > 0:
+        archive_plans, archive_skips = select_archive_candidates(
+            main_checkout=checkout,
+            root=root,
+            default_branch=default_branch,
+            records=records,
+            markers=markers,
+            worktree_by_branch=worktree_by_branch,
+            idle_days=args.archive_idle_days,
+            has_gh=has_gh,
+            no_fetch=args.no_fetch,
+            merge_tree_ok=merge_tree_ok,
+        )
+        skipped.extend(archive_skips)
+
     removed = 0
     for branch in sorted(managed):
         info = worktree_by_branch.get(branch)
         path = info.path if info else None
         print(f"[INFO managed_by=herdr-dispatch run cleanup] {branch} {path if path else '-'}")
 
-    if not planned:
+    if not planned and not archive_plans:
         print("[DONE] nothing to clean")
 
     for candidate in planned:
@@ -576,22 +1060,41 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"[DONE] removed {target} (proof={candidate.proof})")
             removed += 1
 
+    archived = 0
+    archive_exit = 0
     if args.apply:
         prune = run(["git", "worktree", "prune"], cwd=root)
         if prune.returncode != 0:
             print(f"[WARN] git worktree prune failed: {prune.stderr}")
         if main_worktree:
             remove_empty_wt_directories(main_worktree)
+        # Idle days <= 0 skips new candidates. A pending push is still retried.
+        archived, archive_exit, archive_more = apply_idle_archives(
+            root,
+            checkout,
+            default_branch,
+            archive_plans,
+            no_fetch=args.no_fetch,
+        )
+        skipped.extend(archive_more)
+    else:
+        for item in archive_plans:
+            print(
+                f"[PLAN] would archive {item.name} "
+                f"(idle {item.age_days}d, evidence={item.evidence}, proof={item.proof})"
+            )
 
     for branch, reason in skipped:
         print(f"[SKIP] {branch}: {reason}")
-    if planned and not args.apply:
+    if (planned or archive_plans) and not args.apply:
         print("[PLAN] dry-run only; re-run with --apply to execute")
+    common = git_common_dir(root)
+    pending_push = len(read_pending(pending_file(common))) if common is not None else 0
     print(
-        f"removed={removed} archived=0 skipped={len(skipped)} "
-        f"managed_by_dispatch={len(managed)} pending_push=0"
+        f"removed={removed} archived={archived} skipped={len(skipped)} "
+        f"managed_by_dispatch={len(managed)} pending_push={pending_push}"
     )
-    return 0
+    return archive_exit
 
 
 if __name__ == "__main__":

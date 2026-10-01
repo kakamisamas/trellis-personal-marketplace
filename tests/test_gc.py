@@ -5,10 +5,12 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -50,6 +52,64 @@ print(json.dumps(body))
 """
 
 
+TASK_PY = """#!/usr/bin/env python3
+import json
+import os
+import shutil
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+def main() -> int:
+    args = sys.argv[1:]
+    if len(args) < 2 or args[0] != "archive":
+        print("usage: task.py archive <name>", file=sys.stderr)
+        return 1
+    name = args[1]
+    if os.environ.get("TRELLIS_GC_TASK_FAIL") == "1":
+        print("forced failure", file=sys.stderr)
+        return 1
+    root = Path(".").resolve()
+    source = root / ".trellis" / "tasks" / name
+    if not source.is_dir():
+        print(f"missing {source}", file=sys.stderr)
+        return 1
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
+    dest = root / ".trellis" / "tasks" / "archive" / month / name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.move(str(source), str(dest))
+    task_file = dest / "task.json"
+    payload = json.loads(task_file.read_text(encoding="utf-8"))
+    payload["status"] = "completed"
+    task_file.write_text(json.dumps(payload) + "\\n", encoding="utf-8")
+    add = ["git", "add", "-A", "--", ".trellis/tasks"]
+    if os.environ.get("TRELLIS_GC_TASK_TOUCH_BUSINESS") == "1":
+        business = root / "business.py"
+        business.write_text("touched\\n", encoding="utf-8")
+        add = ["git", "add", "-A", "--", ".trellis/tasks", "business.py"]
+    subprocess.run(add, check=True)
+    subprocess.run(["git", "commit", "-m", f"archive {name}"], check=True)
+    if os.environ.get("TRELLIS_GC_TASK_EXTRA_COMMIT") == "1":
+        extra = root / ".trellis" / "tasks" / f"{name}-extra.txt"
+        extra.write_text("extra\\n", encoding="utf-8")
+        subprocess.run(["git", "add", "--", str(extra.relative_to(root))], check=True)
+        subprocess.run(["git", "commit", "-m", f"extra {name}"], check=True)
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+"""
+
+
+OLD_DATE = {
+    "GIT_AUTHOR_DATE": "2020-01-01T00:00:00 +0000",
+    "GIT_COMMITTER_DATE": "2020-01-01T00:00:00 +0000",
+}
+
+
 class Sandbox:
     def __init__(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -58,6 +118,8 @@ class Sandbox:
         self.repo = self.path / "repo"
         self.gh_file = self.path / "gh.json"
         self.bin = self.path / "bin"
+        self.empty_config = self.path / "empty-gitconfig"
+        self.empty_config.write_text("", encoding="utf-8")
         self.gh_file.write_text("{}\n", encoding="utf-8")
         self.bin.mkdir()
         shim = self.bin / "gh"
@@ -75,6 +137,8 @@ class Sandbox:
         env["GIT_COMMITTER_NAME"] = "Trellis GC Test"
         env["GIT_COMMITTER_EMAIL"] = "gc-test@example.com"
         env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env["GIT_CONFIG_GLOBAL"] = str(self.empty_config)
+        env["GIT_CONFIG_SYSTEM"] = str(self.empty_config)
         return env
 
     def git(
@@ -116,6 +180,9 @@ class Sandbox:
         )
         self.git("config", "user.name", "Trellis GC Test")
         self.git("config", "user.email", "gc-test@example.com")
+        hooks = self.path / "no-hooks"
+        hooks.mkdir()
+        self.git("config", "core.hooksPath", str(hooks))
         (self.repo / "README.md").write_text("base\n", encoding="utf-8")
         self.git("add", "README.md")
         self.git("commit", "-m", "base")
@@ -207,11 +274,29 @@ class Sandbox:
         self.set_pr(branch, "MERGED", pr_head if pr_head is not None else local)
         return wt
 
-    def run_gc(self, *args: str, cwd: Path | None = None) -> tuple[int, str, str]:
-        backup = {key: os.environ.get(key) for key in ("PATH", "GH_SHIM_FILE", "PYTHONDONTWRITEBYTECODE")}
+    def run_gc(
+        self,
+        *args: str,
+        cwd: Path | None = None,
+        extra_env: dict[str, str] | None = None,
+    ) -> tuple[int, str, str]:
+        keys = [
+            "PATH",
+            "GH_SHIM_FILE",
+            "PYTHONDONTWRITEBYTECODE",
+            "GIT_CONFIG_GLOBAL",
+            "GIT_CONFIG_SYSTEM",
+        ]
+        if extra_env:
+            keys.extend(extra_env)
+        backup = {key: os.environ.get(key) for key in keys}
         os.environ["PATH"] = str(self.bin) + os.pathsep + os.environ.get("PATH", "")
         os.environ["GH_SHIM_FILE"] = str(self.gh_file)
         os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
+        os.environ["GIT_CONFIG_GLOBAL"] = str(self.empty_config)
+        os.environ["GIT_CONFIG_SYSTEM"] = str(self.empty_config)
+        if extra_env:
+            os.environ.update(extra_env)
         previous = os.getcwd()
         os.chdir(cwd or self.repo)
         stdout = io.StringIO()
@@ -227,6 +312,117 @@ class Sandbox:
                 else:
                     os.environ[key] = value
         return code, stdout.getvalue(), stderr.getvalue()
+
+    def install_archiver(self) -> None:
+        path = self.repo / ".trellis" / "scripts" / "task.py"
+        if path.exists():
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(TASK_PY, encoding="utf-8")
+
+    def pr_url(self, number: int) -> str:
+        return f"https://example.test/pull/{number}"
+
+    def pending_path(self) -> Path:
+        common = Path(self.git("rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip())
+        return common / "trellis-gc" / "pending-push.json"
+
+    def record_idle_task(
+        self,
+        name: str,
+        *,
+        branch: str | None,
+        status: str = "in_progress",
+        pr_url: str | None = None,
+        children: list[str] | None = None,
+        old: bool = True,
+        push: bool = True,
+        config: str | None = "# session_auto_commit: false\n",
+    ) -> None:
+        self.install_archiver()
+        config_path = self.repo / ".trellis" / "config.yaml"
+        if config is not None and not config_path.exists():
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(config, encoding="utf-8")
+        self.write_task(
+            name,
+            branch=branch,
+            status=status,
+            archived=False,
+            pr_url=pr_url,
+            children=children,
+        )
+        self.git("add", ".trellis")
+        self.git("commit", "-m", f"record {name}", extra_env=OLD_DATE if old else None)
+        if push:
+            self.push_main()
+
+    def land_fast_forward(self, branch: str, filename: str = "feature.txt") -> str:
+        self.git("checkout", "-b", branch)
+        (self.repo / filename).write_text(branch + "\n", encoding="utf-8")
+        self.git("add", filename)
+        self.git("commit", "-m", f"add {filename}")
+        oid = self.head("HEAD")
+        self.git("checkout", "main")
+        self.git("merge", "--ff-only", branch)
+        self.push_main()
+        return oid
+
+    def land_merge(self, branch: str, filename: str = "feature.txt") -> str:
+        self.git("checkout", "-b", branch)
+        (self.repo / filename).write_text(branch + "\n", encoding="utf-8")
+        self.git("add", filename)
+        self.git("commit", "-m", f"add {filename}")
+        oid = self.head("HEAD")
+        self.git("checkout", "main")
+        (self.repo / "side.txt").write_text("side\n", encoding="utf-8")
+        self.git("add", "side.txt")
+        self.git("commit", "-m", "diverge main")
+        self.git("merge", "--no-ff", branch, "-m", f"merge {branch}")
+        self.push_main()
+        return oid
+
+    def land_squash(self, branch: str, filename: str = "feature.txt") -> str:
+        self.git("checkout", "-b", branch)
+        (self.repo / filename).write_text(branch + "\n", encoding="utf-8")
+        self.git("add", filename)
+        self.git("commit", "-m", f"add {filename}")
+        oid = self.head("HEAD")
+        self.git("checkout", "main")
+        self.git("merge", "--squash", branch)
+        self.git("commit", "-m", f"squash {branch}")
+        self.push_main()
+        return oid
+
+    def branch_with_gone_upstream(self, branch: str) -> str:
+        self.git("checkout", "-b", branch)
+        (self.repo / "only-branch.txt").write_text(branch + "\n", encoding="utf-8")
+        self.git("add", "only-branch.txt")
+        self.git("commit", "-m", "only on branch")
+        oid = self.head("HEAD")
+        self.git("push", "-u", "origin", branch)
+        self.git("push", "origin", f":{branch}")
+        self.git("fetch", "--prune", "origin")
+        self.git("checkout", "main")
+        return oid
+
+    def clone_origin(self, name: str = "other") -> Path:
+        dest = self.path / name
+        subprocess.run(
+            ["git", "clone", str(self.origin), str(dest)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        self.git("config", "user.name", "Trellis GC Test", cwd=dest)
+        self.git("config", "user.email", "gc-test@example.com", cwd=dest)
+        return dest
+
+    def break_push(self) -> None:
+        self.git("remote", "set-url", "--push", "origin", str(self.path / "missing-push.git"))
+
+    def restore_push(self) -> None:
+        self.git("remote", "set-url", "--push", "origin", str(self.origin))
 
 
 class GarbageCollectorTests(unittest.TestCase):
@@ -749,3 +945,566 @@ class GarbageCollectorTests(unittest.TestCase):
         self.assertTrue(self.sandbox.branch_exists("card/keep"))
         self.assertNotIn("[DONE] removed", stdout)
         self.assertNotIn("[PLAN] would remove", stdout)
+
+    def _plan(self, name: str, evidence: str, proof: str) -> str:
+        return (
+            rf"\[PLAN\] would archive {re.escape(name)} "
+            rf"\(idle \d+d, evidence={evidence}, proof={proof}\)"
+        )
+
+    def test_apply_worktree_and_branch_snapshot(self) -> None:
+        wt = self.sandbox.make_verified_task()
+        assert wt is not None
+        before_branches = set(self.sandbox.git("branch", "--format=%(refname:short)").stdout.split())
+        before_worktrees = self.sandbox.git("worktree", "list", "--porcelain").stdout
+        self.assertIn("task/test", before_branches)
+        self.assertIn(str(wt.resolve()), before_worktrees)
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        after_branches = set(self.sandbox.git("branch", "--format=%(refname:short)").stdout.split())
+        after_worktrees = self.sandbox.git("worktree", "list", "--porcelain").stdout
+        self.assertNotIn("task/test", after_branches)
+        self.assertNotIn(str(wt.resolve()), after_worktrees)
+        self.assertIn("[DONE] removed", stdout)
+
+    def test_planning_task_is_skipped(self) -> None:
+        self.sandbox.write_task("plan-me", branch="task/plan-me", status="planning")
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] plan-me: planning", stdout)
+        self.assertNotIn("would archive", stdout)
+
+    def test_null_branch_task_is_skipped(self) -> None:
+        self.sandbox.write_task("no-branch", branch=None, status="in_progress")
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] no-branch: branch_missing", stdout)
+        self.assertNotIn("would archive", stdout)
+
+    def test_default_branch_task_is_skipped(self) -> None:
+        self.sandbox.write_task("on-main", branch="main", status="in_progress")
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] on-main: branch_is_default", stdout)
+        self.assertNotIn("would archive", stdout)
+
+    def test_idle_in_progress_without_pr_is_no_pr(self) -> None:
+        # One empty commit on top of an old task directory is not completion evidence.
+        self.sandbox.git("checkout", "-b", "task/nopr")
+        self.sandbox.record_idle_task("nopr", branch="task/nopr", status="in_progress", push=False)
+        self.sandbox.git("commit", "--allow-empty", "-m", "empty")
+        self.sandbox.git("checkout", "main")
+        self.sandbox.git("merge", "--ff-only", "task/nopr")
+        self.sandbox.push_main()
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] nopr: no_pr", stdout)
+        self.assertNotIn("would archive", stdout)
+        self.assertTrue(self.sandbox.branch_exists("task/nopr"))
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "nopr").is_dir())
+
+    def test_pr_head_name_mismatch_is_skipped(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/real")
+        url = self.sandbox.pr_url(2)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/other")
+        self.sandbox.record_idle_task("real", branch="task/real", pr_url=url)
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] real: pr_branch_mismatch", stdout)
+        self.assertNotIn("would archive", stdout)
+
+    def test_open_pr_is_not_merged(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/openpr")
+        url = self.sandbox.pr_url(3)
+        self.sandbox.set_pr(url, "OPEN", oid, headRefName="task/openpr")
+        self.sandbox.record_idle_task("openpr", branch="task/openpr", pr_url=url)
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] openpr: pr_not_merged", stdout)
+
+    def test_unlanded_pr_head_is_not_landed(self) -> None:
+        self.sandbox.git("checkout", "-b", "task/unlanded")
+        (self.sandbox.repo / "feature.txt").write_text("only-branch\n", encoding="utf-8")
+        self.sandbox.git("add", "feature.txt")
+        self.sandbox.git("commit", "-m", "only branch")
+        oid = self.sandbox.head("HEAD")
+        self.sandbox.git("checkout", "main")
+        url = self.sandbox.pr_url(4)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/unlanded")
+        self.sandbox.record_idle_task("unlanded", branch="task/unlanded", pr_url=url)
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] unlanded: not_landed tree_differs", stdout)
+        self.assertNotIn("would archive", stdout)
+
+    def test_fast_forward_merged_pr_is_archived(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/ff")
+        url = self.sandbox.pr_url(11)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/ff")
+        self.sandbox.record_idle_task("ff", branch="task/ff", pr_url=url)
+        config = (self.sandbox.repo / ".trellis" / "config.yaml").read_text(encoding="utf-8")
+        self.assertIn("# session_auto_commit: false", config)
+        origin_before = self.sandbox.head("origin/main")
+        code, dry, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertRegex(dry, self._plan("ff", "pr_merged", "ancestor"))
+        self.assertEqual(self.sandbox.head("origin/main"), origin_before)
+        code, applied, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[DONE] archived ff (evidence=pr_merged, proof=ancestor)", applied)
+        self.assertIn("archived=1", applied)
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
+        archived = self.sandbox.repo / ".trellis" / "tasks" / "archive" / month / "ff"
+        self.assertTrue((archived / "task.json").is_file())
+        self.assertFalse((self.sandbox.repo / ".trellis" / "tasks" / "ff").exists())
+        self.assertTrue(self.sandbox.branch_exists("task/ff"))
+        self.assertNotEqual(self.sandbox.head("origin/main"), origin_before)
+        names = self.sandbox.git(
+            "diff-tree", "-r", "--name-only", "--no-commit-id", origin_before, "origin/main"
+        ).stdout.split()
+        self.assertTrue(names)
+        self.assertTrue(all(name.startswith(".trellis/tasks/") for name in names))
+        parents = self.sandbox.git("rev-list", "--parents", "-n1", "origin/main").stdout.split()
+        self.assertEqual(len(parents), 2)
+        self.assertFalse(self.sandbox.pending_path().exists())
+        status = self.sandbox.git("status", "--porcelain", "--untracked-files=all")
+        self.assertEqual(status.stdout.strip(), "")
+
+    def test_merge_commit_pr_is_archived(self) -> None:
+        oid = self.sandbox.land_merge("task/merged")
+        url = self.sandbox.pr_url(12)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/merged")
+        self.sandbox.record_idle_task("merged", branch="task/merged", pr_url=url)
+        code, dry, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertRegex(dry, self._plan("merged", "pr_merged", "ancestor"))
+        code, applied, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[DONE] archived merged (evidence=pr_merged, proof=ancestor)", applied)
+
+    def test_squash_merged_pr_is_archived(self) -> None:
+        oid = self.sandbox.land_squash("task/squashed")
+        url = self.sandbox.pr_url(13)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/squashed")
+        self.sandbox.record_idle_task("squashed", branch="task/squashed", pr_url=url)
+        code, dry, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertRegex(dry, self._plan("squashed", "pr_merged", "tree_equal"))
+        code, applied, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[DONE] archived squashed (evidence=pr_merged, proof=tree_equal)", applied)
+
+    def test_completed_task_outside_archive_is_archived(self) -> None:
+        self.sandbox.land_fast_forward("task/stuck-done", filename="done.txt")
+        self.sandbox.record_idle_task("stuck-done", branch="task/stuck-done", status="completed")
+        code, dry, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertRegex(dry, self._plan("stuck-done", "completed", "ancestor"))
+        code, applied, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[DONE] archived stuck-done (evidence=completed, proof=ancestor)", applied)
+        self.assertTrue(self.sandbox.branch_exists("task/stuck-done"))
+
+    def test_completed_task_with_gone_upstream_uses_pr_proof(self) -> None:
+        oid = self.sandbox.branch_with_gone_upstream("task/prdone")
+        self.sandbox.set_pr("task/prdone", "MERGED", oid)
+        self.sandbox.record_idle_task("prdone", branch="task/prdone", status="completed")
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertRegex(stdout, self._plan("prdone", "completed", "pr"))
+
+    def test_active_child_blocks_archive(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/parent")
+        url = self.sandbox.pr_url(21)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/parent")
+        self.sandbox.install_archiver()
+        self.sandbox.write_task(
+            "parent",
+            branch="task/parent",
+            status="in_progress",
+            pr_url=url,
+            children=["child"],
+        )
+        self.sandbox.write_task("child", branch="task/child", status="in_progress")
+        self.sandbox.git("add", ".trellis")
+        self.sandbox.git("commit", "-m", "record parent", extra_env=OLD_DATE)
+        self.sandbox.push_main()
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] parent: children_active", stdout)
+        self.assertNotIn("would archive", stdout)
+
+    def test_dirty_task_directory_is_skipped(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/dirtydir")
+        url = self.sandbox.pr_url(22)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/dirtydir")
+        self.sandbox.record_idle_task("dirtydir", branch="task/dirtydir", pr_url=url)
+        task_file = self.sandbox.repo / ".trellis" / "tasks" / "dirtydir" / "task.json"
+        task_file.write_text(task_file.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] dirtydir: dirty_task_dir", stdout)
+        self.assertNotIn("would archive", stdout)
+
+    def test_guard_marker_blocks_archive(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/marked")
+        url = self.sandbox.pr_url(23)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/marked")
+        self.sandbox.record_idle_task("marked", branch="task/marked", pr_url=url)
+        self.sandbox.write_guard("marked", "task/marked", phase="hold")
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] marked: guard_active", stdout)
+        self.assertNotIn("would archive", stdout)
+
+    def test_worktree_on_task_branch_blocks_archive(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/busy")
+        url = self.sandbox.pr_url(24)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/busy")
+        self.sandbox.record_idle_task("busy", branch="task/busy", pr_url=url)
+        wt = self.sandbox.path / "busy-wt"
+        self.sandbox.git("worktree", "add", str(wt), "task/busy")
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] busy: worktree_active", stdout)
+        self.assertNotIn("would archive", stdout)
+
+    def test_recent_task_is_skipped(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/fresh")
+        url = self.sandbox.pr_url(25)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/fresh")
+        self.sandbox.record_idle_task("fresh", branch="task/fresh", pr_url=url, old=False)
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] fresh: recent", stdout)
+        self.assertNotIn("would archive", stdout)
+
+    def test_task_directory_without_history_is_skipped(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/untracked")
+        url = self.sandbox.pr_url(26)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/untracked")
+        self.sandbox.write_task("untracked", branch="task/untracked", status="in_progress", pr_url=url)
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] untracked: no_history", stdout)
+        self.assertNotIn("would archive", stdout)
+
+    def test_missing_pr_head_without_fetch_is_unavailable(self) -> None:
+        self.sandbox.git("branch", "task/missing-head", "main")
+        url = self.sandbox.pr_url(27)
+        missing = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        self.sandbox.set_pr(url, "MERGED", missing, headRefName="task/missing-head")
+        self.sandbox.write_task("missing-head", branch="task/missing-head", status="in_progress", pr_url=url)
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] missing-head: not_landed head_unavailable", stdout)
+
+    def test_missing_pr_head_is_fetched_once(self) -> None:
+        other = self.sandbox.clone_origin()
+        (other / "pulled.txt").write_text("from-pr\n", encoding="utf-8")
+        self.sandbox.git("add", "pulled.txt", cwd=other)
+        self.sandbox.git("commit", "-m", "pr head", cwd=other)
+        oid = self.sandbox.head("HEAD", cwd=other)
+        self.sandbox.git("push", "origin", "HEAD:refs/pull/28/head", cwd=other)
+        self.sandbox.git("branch", "task/fetched-head", "main")
+        url = self.sandbox.pr_url(28)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/fetched-head")
+        self.sandbox.write_task(
+            "fetched-head",
+            branch="task/fetched-head",
+            status="in_progress",
+            pr_url=url,
+        )
+        code, blocked, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] fetched-head: not_landed head_unavailable", blocked)
+        self.assertNotEqual(
+            self.sandbox.git("cat-file", "-e", f"{oid}^{{commit}}", check=False).returncode,
+            0,
+        )
+        code, fetched, _ = self.sandbox.run_gc()
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] fetched-head: not_landed tree_differs", fetched)
+        self.assertEqual(
+            self.sandbox.git("cat-file", "-e", f"{oid}^{{commit}}", check=False).returncode,
+            0,
+        )
+
+    def test_archive_idle_days_zero_disables_plans(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/idleoff")
+        url = self.sandbox.pr_url(29)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/idleoff")
+        self.sandbox.record_idle_task("idleoff", branch="task/idleoff", pr_url=url)
+        for days in ("0", "-1"):
+            code, stdout, _ = self.sandbox.run_gc("--no-fetch", "--archive-idle-days", days)
+            self.assertEqual(code, 0, stdout)
+            self.assertNotIn("would archive", stdout)
+            self.assertNotIn("[PLAN] would archive", stdout)
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "idleoff").is_dir())
+
+    def test_sync_refuses_when_not_default_branch(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/side")
+        url = self.sandbox.pr_url(31)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/side")
+        self.sandbox.record_idle_task("side", branch="task/side", pr_url=url)
+        self.sandbox.git("checkout", "-b", "side")
+        origin = self.sandbox.head("origin/main")
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 1)
+        self.assertIn("[WARN] sync precondition failed: not_default_branch", stdout)
+        self.assertNotIn("[DONE] archived", stdout)
+        self.assertEqual(self.sandbox.head("origin/main"), origin)
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "side").is_dir())
+
+    def test_sync_refuses_from_linked_worktree(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/linked")
+        url = self.sandbox.pr_url(32)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/linked")
+        self.sandbox.record_idle_task("linked", branch="task/linked", pr_url=url)
+        linked = self.sandbox.path / "linked"
+        self.sandbox.git("worktree", "add", "--detach", str(linked), "main")
+        origin = self.sandbox.head("origin/main")
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch", cwd=linked)
+        self.assertEqual(code, 1)
+        self.assertIn("[WARN] sync precondition failed: not_main_checkout", stdout)
+        self.assertNotIn("[DONE] archived", stdout)
+        self.assertEqual(self.sandbox.head("origin/main"), origin)
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "linked").is_dir())
+
+    def test_sync_refuses_unknown_local_commit(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/ahead")
+        url = self.sandbox.pr_url(33)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/ahead")
+        self.sandbox.record_idle_task("ahead", branch="task/ahead", pr_url=url)
+        (self.sandbox.repo / "README.md").write_text("ahead\n", encoding="utf-8")
+        self.sandbox.git("add", "README.md")
+        self.sandbox.git("commit", "-m", "local only")
+        origin = self.sandbox.head("origin/main")
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 1)
+        self.assertIn("[WARN] sync precondition failed: unknown_local_commits", stdout)
+        self.assertIn("[WARN] recovery:", stdout)
+        self.assertNotIn("[DONE] archived", stdout)
+        self.assertEqual(self.sandbox.head("origin/main"), origin)
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "ahead").is_dir())
+
+    def test_sync_refuses_when_behind_remote(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/behind")
+        url = self.sandbox.pr_url(34)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/behind")
+        self.sandbox.record_idle_task("behind", branch="task/behind", pr_url=url)
+        other = self.sandbox.clone_origin()
+        (other / "remote.txt").write_text("remote\n", encoding="utf-8")
+        self.sandbox.git("add", "remote.txt", cwd=other)
+        self.sandbox.git("commit", "-m", "remote only", cwd=other)
+        self.sandbox.git("push", "origin", "main", cwd=other)
+        code, stdout, _ = self.sandbox.run_gc("--apply")
+        self.assertEqual(code, 1)
+        self.assertIn("[WARN] sync precondition failed: behind_remote", stdout)
+        self.assertNotIn("[DONE] archived", stdout)
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "behind").is_dir())
+
+    def test_sync_refuses_when_diverged(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/diverged")
+        url = self.sandbox.pr_url(35)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/diverged")
+        self.sandbox.record_idle_task("diverged", branch="task/diverged", pr_url=url)
+        (self.sandbox.repo / "local.txt").write_text("local\n", encoding="utf-8")
+        self.sandbox.git("add", "local.txt")
+        self.sandbox.git("commit", "-m", "local only")
+        other = self.sandbox.clone_origin()
+        (other / "remote.txt").write_text("remote\n", encoding="utf-8")
+        self.sandbox.git("add", "remote.txt", cwd=other)
+        self.sandbox.git("commit", "-m", "remote only", cwd=other)
+        self.sandbox.git("push", "origin", "main", cwd=other)
+        local = self.sandbox.head("HEAD")
+        code, stdout, _ = self.sandbox.run_gc("--apply")
+        self.assertEqual(code, 1)
+        self.assertIn("[WARN] sync precondition failed: diverged", stdout)
+        self.assertNotIn("[DONE] archived", stdout)
+        published = set(self.sandbox.git("rev-list", "origin/main").stdout.split())
+        self.assertNotIn(local, published)
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "diverged").is_dir())
+
+    def test_sync_refuses_dirty_worktree(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/dirtyrepo")
+        url = self.sandbox.pr_url(36)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/dirtyrepo")
+        self.sandbox.record_idle_task("dirtyrepo", branch="task/dirtyrepo", pr_url=url)
+        (self.sandbox.repo / "junk.txt").write_text("x\n", encoding="utf-8")
+        origin = self.sandbox.head("origin/main")
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 1)
+        self.assertIn("[WARN] sync precondition failed: dirty", stdout)
+        self.assertNotIn("[DONE] archived", stdout)
+        self.assertEqual(self.sandbox.head("origin/main"), origin)
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "dirtyrepo").is_dir())
+
+    def test_auto_commit_disabled_skips_archive(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/nocommit")
+        url = self.sandbox.pr_url(37)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/nocommit")
+        self.sandbox.record_idle_task(
+            "nocommit",
+            branch="task/nocommit",
+            pr_url=url,
+            config="session_auto_commit: false\n",
+        )
+        origin = self.sandbox.head("origin/main")
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] nocommit: auto_commit_disabled", stdout)
+        self.assertNotIn("[DONE] archived", stdout)
+        self.assertEqual(self.sandbox.head("origin/main"), origin)
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "nocommit").is_dir())
+
+    def test_archive_command_failure_stops(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/failarch")
+        url = self.sandbox.pr_url(38)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/failarch")
+        self.sandbox.record_idle_task("failarch", branch="task/failarch", pr_url=url)
+        origin = self.sandbox.head("origin/main")
+        code, stdout, _ = self.sandbox.run_gc(
+            "--apply",
+            "--no-fetch",
+            extra_env={"TRELLIS_GC_TASK_FAIL": "1"},
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("[WARN] archive failarch failed", stdout)
+        self.assertNotIn("[DONE] archived", stdout)
+        self.assertEqual(self.sandbox.head("origin/main"), origin)
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "failarch").is_dir())
+        self.assertFalse(self.sandbox.pending_path().exists())
+
+    def test_two_parent_pending_commit_is_not_pushed(self) -> None:
+        (self.sandbox.repo / "business.py").write_text("base\n", encoding="utf-8")
+        self.sandbox.git("add", "business.py")
+        self.sandbox.git("commit", "-m", "business base")
+        self.sandbox.push_main()
+        base = self.sandbox.head("HEAD")
+        note = self.sandbox.repo / ".trellis" / "tasks" / "note.txt"
+        note.parent.mkdir(parents=True)
+        note.write_text("t\n", encoding="utf-8")
+        self.sandbox.git("add", ".trellis/tasks/note.txt")
+        self.sandbox.git("commit", "-m", "tasks only")
+        tasks_sha = self.sandbox.head("HEAD")
+        self.sandbox.git("checkout", "-b", "side", base)
+        (self.sandbox.repo / "business.py").write_text("side\n", encoding="utf-8")
+        self.sandbox.git("add", "business.py")
+        self.sandbox.git("commit", "-m", "side business")
+        self.sandbox.git("checkout", "main")
+        self.sandbox.git("merge", "--no-commit", "side")
+        (self.sandbox.repo / "business.py").write_text("resolved\n", encoding="utf-8")
+        self.sandbox.git("add", "business.py")
+        self.sandbox.git("commit", "-m", "merge business")
+        merge_sha = self.sandbox.head("HEAD")
+        parents = self.sandbox.git("rev-list", "--parents", "-n1", merge_sha).stdout.split()
+        self.assertEqual(len(parents), 3)
+        ahead = [sha for sha in self.sandbox.git("rev-list", "origin/main..HEAD").stdout.split() if sha]
+        self.assertIn(merge_sha, ahead)
+        self.assertIn(tasks_sha, ahead)
+        trellis_gc.write_pending(self.sandbox.pending_path(), "main", ahead)
+        origin = self.sandbox.head("origin/main")
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch", "--archive-idle-days", "0")
+        self.assertEqual(code, 1)
+        self.assertIn("[WARN] sync precondition failed: unexpected_commit_type", stdout)
+        self.assertNotIn("[DONE] archived", stdout)
+        self.assertEqual(self.sandbox.head("origin/main"), origin)
+        self.assertTrue(self.sandbox.pending_path().is_file())
+
+    def test_extra_archive_commit_is_not_pushed(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/extra")
+        url = self.sandbox.pr_url(41)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/extra")
+        self.sandbox.record_idle_task("extra", branch="task/extra", pr_url=url)
+        origin = self.sandbox.head("origin/main")
+        code, stdout, _ = self.sandbox.run_gc(
+            "--apply",
+            "--no-fetch",
+            extra_env={"TRELLIS_GC_TASK_EXTRA_COMMIT": "1"},
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("[WARN] unexpected_archive_commits", stdout)
+        self.assertNotIn("[DONE] archived", stdout)
+        self.assertEqual(self.sandbox.head("origin/main"), origin)
+        ahead = [line for line in self.sandbox.git("rev-list", "origin/main..HEAD").stdout.split() if line]
+        self.assertEqual(len(ahead), 2)
+        self.assertFalse(self.sandbox.pending_path().exists())
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "archive" / month / "extra").is_dir())
+
+    def test_archive_commit_touching_business_file_is_not_pushed(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/biz")
+        url = self.sandbox.pr_url(42)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/biz")
+        self.sandbox.record_idle_task("biz", branch="task/biz", pr_url=url)
+        origin = self.sandbox.head("origin/main")
+        code, stdout, _ = self.sandbox.run_gc(
+            "--apply",
+            "--no-fetch",
+            extra_env={"TRELLIS_GC_TASK_TOUCH_BUSINESS": "1"},
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("[WARN] unexpected_commit_paths", stdout)
+        self.assertEqual(self.sandbox.head("origin/main"), origin)
+        self.assertFalse(self.sandbox.pending_path().exists())
+        names = self.sandbox.git(
+            "diff-tree", "-r", "--name-only", "--no-commit-id", "HEAD"
+        ).stdout.split()
+        self.assertIn("business.py", names)
+
+    def test_failed_push_keeps_pending_and_retries(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/retry")
+        url = self.sandbox.pr_url(43)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/retry")
+        self.sandbox.record_idle_task("retry", branch="task/retry", pr_url=url)
+        self.sandbox.break_push()
+        origin = self.sandbox.head("origin/main")
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 1)
+        self.assertIn("[DONE] archived retry", stdout)
+        self.assertIn("[WARN] pending push", stdout)
+        self.assertIn("pending_push=1", stdout)
+        self.assertTrue(self.sandbox.pending_path().is_file())
+        status = self.sandbox.git("status", "--porcelain", "--untracked-files=all")
+        self.assertEqual(status.stdout.strip(), "")
+        self.assertEqual(self.sandbox.head("origin/main"), origin)
+        stored = json.loads(self.sandbox.pending_path().read_text(encoding="utf-8"))
+        self.assertEqual(stored["commits"], [self.sandbox.head("HEAD")])
+        self.assertEqual(stored["default_branch"], "main")
+        self.sandbox.restore_push()
+        code, retried, _ = self.sandbox.run_gc("--apply", "--no-fetch", "--archive-idle-days", "0")
+        self.assertEqual(code, 0, retried)
+        self.assertFalse(self.sandbox.pending_path().exists())
+        self.assertNotEqual(self.sandbox.head("origin/main"), origin)
+        self.assertIn("pending_push=0", retried)
+
+    def test_unknown_commit_during_pending_is_not_pushed(self) -> None:
+        oid = self.sandbox.land_fast_forward("task/sneak")
+        url = self.sandbox.pr_url(44)
+        self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/sneak")
+        self.sandbox.record_idle_task("sneak", branch="task/sneak", pr_url=url)
+        self.sandbox.break_push()
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 1, stdout)
+        self.assertTrue(self.sandbox.pending_path().is_file())
+        (self.sandbox.repo / "README.md").write_text("sneak\n", encoding="utf-8")
+        self.sandbox.git("add", "README.md")
+        self.sandbox.git("commit", "-m", "unknown while pending")
+        self.sandbox.restore_push()
+        origin = self.sandbox.head("origin/main")
+        code, retried, _ = self.sandbox.run_gc("--apply", "--no-fetch", "--archive-idle-days", "0")
+        self.assertEqual(code, 1)
+        self.assertIn("[WARN] sync precondition failed: unknown_local_commits", retried)
+        self.assertEqual(self.sandbox.head("origin/main"), origin)
+        self.assertTrue(self.sandbox.pending_path().is_file())
+
+    def test_dry_run_leaves_pending_record(self) -> None:
+        trellis_gc.write_pending(self.sandbox.pending_path(), "main", ["abc123"])
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch", "--archive-idle-days", "0")
+        self.assertEqual(code, 0)
+        self.assertIn("pending_push=1", stdout)
+        self.assertEqual(
+            json.loads(self.sandbox.pending_path().read_text(encoding="utf-8"))["commits"],
+            ["abc123"],
+        )
