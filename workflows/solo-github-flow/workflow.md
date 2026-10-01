@@ -152,8 +152,10 @@ Phase 3: Finish  → verify, update spec, report, then finish through GitHub aft
 
 ### Request Triage
 
-- Simple conversation or small task: ask only whether this turn should create a Trellis task. If the user says no, skip Trellis for this session.
-- Complex task: ask whether you may create a Trellis task and enter planning. If the user says no, do not do broad inline implementation; explain, clarify scope, or suggest a smaller split.
+- With no active task, read-only questions, reviews, and investigation proceed directly: do not ask for task creation, create a task/worktree, or run bootstrap/GC. If the user requests persistent task tracking, use the task-creation flow.
+- Small changes: ask only whether this turn should create a Trellis task. If the user says no, skip Trellis for this session.
+- Complex changes: ask whether you may create a Trellis task and enter planning. If the user says no, do not do broad inline implementation; explain, clarify scope, or suggest a smaller split.
+- Existing explicit task-creation consent satisfies this gate; do not ask for the same authorization again.
 - User approval to create a task is not approval to start implementation. Planning still happens first.
 
 ### Planning Artifacts
@@ -183,11 +185,11 @@ When parent and child metadata are available in one integration worktree, create
 <!-- Per-turn breadcrumb: shown when there is no active task (before Phase 1) -->
 
 [workflow-state:no_task]
-No active task. First classify the current turn and ask for task-creation consent before creating any Trellis task.
+No active task. Classify first: read-only questions, reviews, and investigation proceed directly without task-creation questions, task/worktree creation, bootstrap, or GC. For changes or explicitly requested task tracking, obtain task-creation consent unless already granted.
 Worktree coordinator exception: if this session already holds a verified absolute `Active task` and `Workdir` created in Phase 1.0, continue that task's planning from those paths; do not create a duplicate task merely because the base worktree has no local pointer yet.
-Simple conversation / small task: ask only whether this turn should create a Trellis task. If the user says no, skip Trellis for this session.
-Complex task: ask the user if you can create a Trellis task and enter the planning phase. If the user says no, explain, clarify scope, or suggest a smaller split.
-After consent, do the Phase 1.0 read-only coordinating-worktree checks and, if `scripts/trellis_gc.py` is already present, the merged-task GC. Do not install marketplace files into the coordinating worktree. Create the task worktree first, then bootstrap missing solo-github-flow tooling inside that task worktree.
+Small changes without prior consent: ask only whether this turn should create a Trellis task. If the user says no, skip Trellis for this session.
+Complex changes without prior consent: ask the user if you can create a Trellis task and enter the planning phase. If the user says no, explain, clarify scope, or suggest a smaller split.
+Only after consent and only when creating a task worktree: do the Phase 1.0 read-only coordinating-worktree checks and, if `scripts/trellis_gc.py` is already present, the merged-task GC. Do not install marketplace files into the coordinating worktree. Create the task worktree first, then bootstrap missing solo-github-flow tooling inside that task worktree.
 [/workflow-state:no_task]
 
 ### Phase 1: Plan
@@ -334,7 +336,7 @@ When a user request matches one of these intents inside an active task, route fi
 
 - Task creation approval is not implementation approval; implementation waits for `task.py start` after artifact review.
 - PRD-only is valid for lightweight tasks; complex tasks need `design.md` + `implement.md`.
-- Planning must be persisted to task artifacts; checks must run before reporting completion.
+- Planning must be persisted to task artifacts; required checks need current, traceable evidence before reporting completion (see Verification Evidence).
 
 ### Loading Step Detail
 
@@ -627,6 +629,14 @@ card. Cards are herdr-dispatch records, not Trellis lifecycle objects.
 
 Goal: turn reviewed planning artifacts into code that passes quality checks.
 
+### Verification Evidence
+
+- Run checks appropriate to the changed content and required coverage. Reuse a successful result only when its evidence is traceable and the checked content (including staged, unstaged, and untracked content), command, coverage, and relevant environment/dependencies are unchanged. The same `HEAD` alone is insufficient.
+- Record the command, scope, content identity, relevant environment/dependencies, result, and evidence location. After edits, rerun affected checks; reuse only unaffected matching evidence.
+- Review source independently even when command results are reused. Focused checks do not satisfy full-scope checks; local evidence does not replace CI in a different environment. TDD red/green, each PR's full-scope review, CI, and OCR requirements remain in force.
+- Fix issues introduced by this task within its scope. Report evidenced pre-existing failures separately; report uncertain failures as unresolved. Do not widen scope to make unrelated failures green or label a failure as a pass.
+- Report `pass`, `fail`, `reused` (with evidence), `not applicable` (with reason), or `pre-existing failure` (with evidence), as appropriate.
+
 #### 2.1 Implement `[required · repeatable]`
 
 If full card-run mode is enabled, the main session is the herdr-dispatch
@@ -674,7 +684,7 @@ Testing rules:
 Spawn the implement sub-agent:
 
 - **Agent type**: `trellis-implement`
-- **Task description**: Implement the reviewed task artifacts using one behavior slice at a time: red test through a public interface, green implementation, refactor only while green; consult materials under `{TASK_DIR}/research/`; finish by running focused tests plus project lint and type-check
+- **Task description**: Implement the reviewed task artifacts using one behavior slice at a time: red test through a public interface, green implementation, refactor only while green; consult materials under `{TASK_DIR}/research/`; finish with focused tests plus applicable project lint and type-check evidence under Verification Evidence
 - **Dispatch prompt guard**: The prompt MUST start with `Active task: <absolute task path>` and `Workdir: <absolute worktree path>` on separate lines, then tell the spawned agent it may operate only inside `Workdir`, is already the `trellis-implement` sub-agent, and must implement directly, not spawn another `trellis-implement` / `trellis-check`.
 
 The platform hook/plugin auto-handles:
@@ -689,7 +699,7 @@ The platform hook/plugin auto-handles:
 Spawn the implement sub-agent:
 
 - **Agent type**: `trellis-implement`
-- **Task description**: Implement the reviewed task artifacts using one behavior slice at a time: red test through a public interface, green implementation, refactor only while green; consult materials under `{TASK_DIR}/research/`; finish by running focused tests plus project lint and type-check
+- **Task description**: Implement the reviewed task artifacts using one behavior slice at a time: red test through a public interface, green implementation, refactor only while green; consult materials under `{TASK_DIR}/research/`; finish with focused tests plus applicable project lint and type-check evidence under Verification Evidence
 - **Dispatch prompt guard**: The prompt MUST start with `Active task: <absolute task path>` and `Workdir: <absolute worktree path>` on separate lines, then explicitly limit all operations to `Workdir` and say the spawned agent is already `trellis-implement` and must implement directly without spawning another `trellis-implement` / `trellis-check`.
 
 The pull-based sub-agent definition auto-handles the context load requirement:
@@ -703,7 +713,7 @@ The pull-based sub-agent definition auto-handles the context load requirement:
 Spawn the implement sub-agent:
 
 - **Agent type**: `trellis-implement`
-- **Task description**: Implement the reviewed task artifacts using one behavior slice at a time: red test through a public interface, green implementation, refactor only while green; consult materials under `{TASK_DIR}/research/`; finish by running focused tests plus project lint and type-check
+- **Task description**: Implement the reviewed task artifacts using one behavior slice at a time: red test through a public interface, green implementation, refactor only while green; consult materials under `{TASK_DIR}/research/`; finish with focused tests plus applicable project lint and type-check evidence under Verification Evidence
 - **Dispatch prompt guard**: Start with `Active task: <absolute task path>` and `Workdir: <absolute worktree path>` on separate lines; restrict all operations to `Workdir`; tell the spawned agent it is already the `trellis-implement` sub-agent and must implement directly, not spawn another `trellis-implement` / `trellis-check`.
 
 The platform prelude auto-handles the context load requirement:
@@ -719,7 +729,7 @@ The platform prelude auto-handles the context load requirement:
 3. Read `{TASK_DIR}/prd.md`, then `design.md` if present, then `implement.md` if present
 4. Consult materials under `{TASK_DIR}/research/`
 5. Implement the code per reviewed artifacts
-6. Run project lint and type-check
+6. Verify applicable project lint and type-check under Verification Evidence
 
 [/codex-inline, Kilo, Antigravity, Devin]
 
@@ -768,7 +778,7 @@ Review scope: the main session supplies the declared scope and verified `base_sh
 Spawn the check sub-agent:
 
 - **Agent type**: `trellis-check`
-- **Task description**: Review all code changes against specs and task artifacts; fix any findings directly; ensure lint and type-check pass
+- **Task description**: Review the declared commit/worktree scope against specs and task artifacts; fix task-introduced local issues and verify applicable checks under Verification Evidence
 - **Dispatch prompt guard**: The prompt MUST start with `Active task: <absolute task path>` and `Workdir: <absolute worktree path>` on separate lines, then tell the spawned agent it may operate only inside `Workdir`, is already the `trellis-check` sub-agent, and must review/fix directly, not spawn another `trellis-check` / `trellis-implement`.
 
 The check agent's job:
@@ -776,8 +786,8 @@ The check agent's job:
 - Review code changes against `prd.md`, `design.md` if present, and `implement.md` if present
 - Verify each completed behavior has a test that fails without the implementation and passes through a public interface
 - Verify mocks are limited to system boundaries and not internal implementation details
-- Auto-fix issues it finds
-- Run lint and typecheck to verify
+- Fix task-introduced mechanical, local issues; report design decisions, out-of-scope issues, and evidenced pre-existing failures
+- Verify applicable checks under Verification Evidence, independently of source review
 
 [/Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
 
@@ -788,7 +798,7 @@ From the task's recorded worktree, load the `trellis-check` skill and verify the
 - lint / type-check / tests
 - Cross-layer consistency (when changes span layers)
 
-If issues are found → fix → re-check, until green.
+Fix task-introduced local issues and rerun affected checks under Verification Evidence; report pre-existing or unresolved failures without expanding scope.
 
 [/codex-inline, Kilo, Antigravity, Devin]
 
@@ -804,7 +814,7 @@ If CodeGraph prepare was not skipped, sync the task index before this quality ch
 python3 scripts/trellis_codegraph.py sync --worktree "<absolute-worktree-path>"
 ```
 
-**Final pass (before each pull request that will merge)**: the last 2.2 for that PR must run full-scope on the packages it touches, not just the latest implement chunk. List all affected packages with `python3 ./.trellis/scripts/get_context.py --mode packages`, then load each package's spec index Quality Check section. This catches cross-layer / multi-package issues a mid-iteration local 2.2 cannot. A task that ships several PRs repeats this full-scope pass per PR; do not wait for task archival.
+**Final pass (before each pull request that will merge)**: the last 2.2 for that PR must cover the full scope of the packages it touches, not just the latest implement chunk. Review source independently and run required checks or cite matching full-scope evidence under Verification Evidence. List all affected packages with `python3 ./.trellis/scripts/get_context.py --mode packages`, then load each package's spec index Quality Check section. This catches cross-layer / multi-package issues a mid-iteration local 2.2 cannot. A task that ships several PRs repeats this full-scope pass per PR; do not wait for task archival.
 
 After that full-scope check and its tests are green, the main session runs one local Open Code Review (OCR) advisory review of **this PR's product diff** from the task worktree. This is part of that PR's 2.2 completion condition; do not add a separate workflow step that `/trellis:continue` could skip. One Trellis task with several mergeable PRs runs one OCR per PR, not one OCR for the whole task. Phase 2.2 `trellis-check` remains `[required · repeatable]` and is not limited to once per task or once per PR.
 
@@ -816,7 +826,7 @@ After that full-scope check and its tests are green, the main session runs one l
 4. Run `ocr review --format json --audience agent --background-file <absolute-task-path>/prd.md --exclude '<patterns>'`, plus `--from <base-branch> --to HEAD` when reviewing a committed PR. Redirect stdout and stderr to separate temporary files and read both in full; never pipe review output through `head` or `tail`. Do not commit raw OCR output.
 5. Treat stdout as the primary result. Prefer `manifest.terminal_state`; otherwise normalize stdout `status` as follows: `complete`/`success` -> `complete`, `partial`/`completed_with_warnings`/`completed_with_errors` -> `partial`, `skipped` -> `skipped`, and all other failed or non-zero-without-result paths -> `failed`. Stderr supplies only failure diagnostics, usage, and session metadata; it never overrides a valid stdout manifest.
 6. For a manifest, require `completed`, `reused`, `failed`, and `waived` item IDs to be pairwise disjoint and their union to equal `selected`. If parsing or this invariant fails, record `Status: failed`. Report all five counts without deriving `completed` by subtraction.
-7. Every unique `comments[]` entry from this single review must be either fixed or rejected. A rejection cites verifiable current code, actual data flow, or test evidence; do not silently discard low-priority comments. After accepted fixes, rerun affected tests and the full-scope checks.
+7. Every unique `comments[]` entry from this single review must be either fixed or rejected. A rejection cites verifiable current code, actual data flow, or test evidence; do not silently discard low-priority comments. After accepted fixes, rerun affected tests and re-establish full-scope check coverage under Verification Evidence; only unaffected matching evidence may be reused.
 8. Run OCR exactly once per pull request that will merge. After fixing or rejecting that review's comments, do not run OCR again on that PR; tests and full-scope checks validate the fixes. A later PR or stage in the same task is a new OCR scope — do not skip it by deferring to a final whole-task review, and do not treat a prior PR's OCR as covering later diffs. Workspace mode does not support `--resume`, so explicitly ignore OCR's stderr `retry with: --resume` hint. A partial or failed result remains visible and non-blocking rather than triggering another review of the same PR.
 9. Keep the normalized status, session ID, coverage counts, and fixed/rejected disposition rows available for **this** PR's Phase 3.5 body. This is advisory: missing configuration, partial coverage, or tool failure is visible but does not block the finish flow.
 
