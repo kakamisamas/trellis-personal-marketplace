@@ -558,6 +558,22 @@ B5R-04/06/07/08/09 与 B5S-01..05 核实已修复；B5R-01/02/03/05 主体改善
 | B5S-07 cancel 对照依赖两例同跑的全局快照；旧手造 `status=retry` 用例可删 | 采纳 | 便宜 | B5 r3：单测试内生成活/死两路制品再比较；删旧人工状态用例 |
 | B5S-08 cursor 软链接测试写死 `/Users/davidl/.local/bin/cursor-agent` | 采纳 | 便宜 | B5 r3：从排除 fake bin 的 PATH 查找，找不到则 skip |
 
+### B 轨道最终 code review（`workflow-v2-Btrack-review-1001`，r8 唯一一次审核，对 `845d35c..7af755e`；verdict fail）
+
+B5 r3（Opus）、B3+B6（Opus）、B2+B1+B4（Grok）均由主控自验后合并（618 OK）。审核方独立全套 618 OK；合并正确性、既有测试改动范围、跨卡环境/绑定一致性核实一致。6 条阻塞 + 3 条建议，取舍如下；修复由一轮 Grok 派单 `workflow-v2-Bfix-1001` 完成（起点 `7af755e`），主控自验后合入 skills main，不再开第二轮审核。
+
+| 项 | 取舍 | 理由 | 去向 |
+| --- | --- | --- | --- |
+| BR-01（B5）`handoff_check`/`_check_can_reuse_executor` 在 headless 分流前因 `pane_id` 为空返回 `no_session`，又先把旧 holder 标 settled → 存活的 headless 执行者旁边启动第二个同范围写入者 | 采纳 | 双写入者是 B5 第 5/6 条与 §0 #11 的硬违规；审核方真实复现两 PID 同时 working | Bfix：补救检查先消费整轮 liveness（活组 / `identity_changed` / `query_failed` → `assignee_busy`）；整轮退出且有 `session_id` → 沿用 execute 派单下一轮 resume；无 id → 新会话策略；补活/死/残纠正组/`query_failed` 四例 |
+| BR-02（B5）握手 10s 超时 `_kill_unreported` 后 process.json 留在本轮且无 delivery，合法 `retry-start` 走 `adopt` 接管已死包装进程，重启分支不可达 → 未启动的 Codex 被记成 `missing_report` | 采纳 | 启动超时是可重试故障，不是身份错误；高负载就能触发 | Bfix：握手失败写可恢复的启动失败记录（process.json `startup_failed: handshake_timeout`）；`adopt` 只接管成功投递过的记录；合法 retry 在整轮组空且无 published 时真正重启；补 SIGSTOP 包装进程 → watcher_failed → claim → retry-start → 新 pid、harness 调用 1 次 |
+| BR-03（B1×B5）`dispatch_wait_status` 的 `needs_attention` 分支只认 watcher/protocol_failed，对 `headless_terminate_failed` 也给「resume --retry-start」，而该命令会 `retry_start_not_allowed` → 守卫一直拦主控且指错动作 | 采纳 | B1 第 7 步要求 action_required 给正确下一步；B0 明确 runtime_error 不授予 retry-start | Bfix：按事件类型分流：未领取 runtime_error → `collect --claim`；已领取 `headless_terminate_failed` → `status`/处理残组/`cancel`，已有 pending cancel 则组退出后 `resume`；只有匹配且已 claim 的 `watcher_failed` → retry-start；补有 marker 的 Stop 集成测试，pane 启动故障行为不变 |
+| BR-04（B6）`references/protocol.md:77` 仍写「HEAD 等于已验收 SHA 才删、额外提交一律保留」 | 采纳 | 主控自验时已标记；references 事实错误 | Bfix：按 B6 改写（两种布局、卡片/集成 proof、全部保留门禁、调用者 fetch 责任、task_worktree 父目录不删） |
+| BR-05（B4）指定夹具 C1 渲染 7873 B > 6KB，6KB 测试换成极小卡 | 部分采纳（契约澄清） | 卡面确实指定 C1 为验收夹具；但 `goal` 正文是用户原文（含 4 条 120+ 字符绝对路径），渲染器不该改它 | Bfix：`allow_write`/`review_paths`/`monitor_paths` 在 cwd 之下时渲染为相对路径（cwd 只写一次）；去掉与「工作目录与分支」段重复的 worktree/base 行；**契约澄清：6KB 上限 = 渲染结果字节数减去 `goal` 字段原文字节数**，对 C1 夹具加该断言；小卡测试保留；报告写明 C1 的全长与扣除后长度 |
+| BR-06（B1）fetch 节流按 marker 的 `fetched_at`，同仓两个 marker 一次 sweep fetch 两次；turn-guard.md:66 也写成每 marker | 采纳 | 卡面写明「每仓每 60s 最多一次」 | Bfix：按 git common dir 共享时间戳（`<common-dir>/trellis-guard/.fetch-<default>.json`，锁下读写），多 marker/多 pane 共享；补同仓两 marker 一次 sweep 只 fetch 一次的计数断言；文档同步 |
+| BS-01 无 marker 时派工状态不参与 Stop | 不采纳 | B1 第 5 步字面顺序，审核方也判一致；要改先改计划 | — |
+| BS-02 `install` 绑定脚本自身绝对路径，重复安装不迁移旧路径 | 延后 | A1 从主检出安装即可；路径迁移是 A1 之后的事 | §9 |
+| BS-03 status 的 `exited` 只描述 wrapper，残组仍活时显示易误解 | 延后 | 判定列正确，仅显示 | §9 |
+
 ### T4 code review r1（`workflow-v2-T4-review-1001`，对 `a47567c`；verdict fail）
 
 | 项 | 取舍 | 理由 | 去向 |
@@ -726,4 +742,6 @@ B0R-01..06 审核方独立核实已修复（制品四个写入边界、恢复时
 - B2 活动协议（`activity.json`/`turn.json`/`busy-state.json`）、状态标签 `report-metadata`、`fill_session` 三处同步与 A1 的事件串行探针（r7 延后：只剩 Claude Worker 走 pane）。
 - `claude -p` 无头路径（额度政策定了再说）。
 - `status --all` 结构化输出（`--json`），替代按空白切列（B5S-02 的完整形）。
+- `turn_guard.py install` 识别同事件下旧的 turn_guard 命令路径并替换（从临时 worktree 误装后再从主检出 install 能自动修正）（BS-02）。
+- `status` 的 headless 格子消费 `assignee_liveness`/`round_members`，wrapper 已退出但残组仍活时显示 `group_alive`（BS-03）。
 - B7 转向收件箱（pane 路径）。
