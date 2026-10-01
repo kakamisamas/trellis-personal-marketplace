@@ -508,6 +508,14 @@ A1（探针门禁）→ A2 → A3 → A4
 | A1 | 探针改为：三种主控 harness 的主控侧守卫 + Claude pane Worker + 无头 Worker 的 hook 触发记录；删 session 补全与事件串行探针 | 探针对象随设计变 |
 | B0 | 不变；已验收 | B5 要在 B0 的 `dispatch_settled`/`finalize_cancel` 上加分支 |
 
+### T4 code review r1（`workflow-v2-T4-review-1001`，对 `a47567c`；verdict fail）
+
+| 项 | 取舍 | 理由 | 去向 |
+| --- | --- | --- | --- |
+| T4R-01 README:41「only `trellis_gc.py` removes the task worktree」与 workflow.md:999-1002 的脚本不可用时人工清理兜底矛盾 | 采纳 | 「only」排除了工作流明文的兜底；正确的限定是「`run cleanup` 不删任务 worktree」 | T4 r2：改为 Phase 3.5 用 `trellis_gc.py` 删、脚本不可用时按工作流核验后人工删、`run cleanup` 永不删 |
+| T4S-01 README:194 同步前置漏了 fetch 成功条件 | 采纳 | `sync_preconditions` 在未 `--no-fetch` 时 `git fetch origin <default>` 失败即 `fetch_failed`（trellis_gc.py:811-814） | T4 r2：补一句 |
+| T4S-02 README:246「The only worker that stays in a Herdr pane」缺 By default | 采纳 | 与下一句的显式覆盖并列时更清楚 | T4 r2：加 By default |
+
 ### B0 code review r2（`workflow-v2-B0-review-1001` round 2，对 `845d35c`；verdict pass）
 
 B0R-01..06 审核方独立核实已修复（制品四个写入边界、恢复时窗口重试、占位 pid/nonce 归属、`BaseException` 清理各加测；改副本过滤 exhausted 事件后新用例确实失败；`lifecycle/wakeup/gitutil/watcher` 与 `626a82d` 逐字相同；414 OK）。无新阻塞与建议。B0 两个派单已 accept + cleanup；skills worktree `workflow-v2` = `845d35c`。审核过程的一处失误（准备文件写进了 rounds/1/tmp）已在报告披露，不影响代码。
