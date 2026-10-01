@@ -61,7 +61,13 @@ class ArchiveCandidate:
 
 
 def run(args: Sequence[str], cwd: str | Path | None = None) -> CommandResult:
-    result = subprocess.run(args, cwd=cwd, capture_output=True, text=True)
+    result = subprocess.run(
+        args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"},
+    )
     return CommandResult(result.returncode, result.stdout.strip(), result.stderr.strip())
 
 
@@ -293,11 +299,19 @@ def load_task_records(main_checkout: str) -> list[TaskRecord]:
 
 
 def branch_lifecycle(records: Sequence[TaskRecord], branch: str) -> str:
-    """Return ``active``, ``archived``, or ``missing`` for ``branch``."""
+    """Return ``active``, ``archived``, ``archive_incomplete``, or ``missing``.
+
+    A non-archived match wins. An archived match counts as finished only when
+    its ``status`` is exactly ``completed``; any other archived match
+    (``in_progress``, ``planning``, or a missing status) is ``archive_incomplete``.
+    """
     if any(record.branch == branch and not record.archived for record in records):
         return "active"
-    if any(record.branch == branch and record.archived for record in records):
+    archived = [record for record in records if record.branch == branch and record.archived]
+    if any(record.status == "completed" for record in archived):
         return "archived"
+    if archived:
+        return "archive_incomplete"
     return "missing"
 
 
@@ -341,7 +355,7 @@ def index_lock_state(worktree: str) -> str:
     return "clear"
 
 
-def location_skip(
+def position_skip(
     branch: str,
     worktree: WorktreeInfo | None,
     *,
@@ -349,20 +363,28 @@ def location_skip(
     current_path: str,
     current_branch: str,
 ) -> str | None:
+    """Skip the main checkout and the worktree the process is running in."""
     if worktree is not None:
         real_worktree = os.path.realpath(worktree.path)
         if main_worktree and real_worktree == os.path.realpath(main_worktree):
             return "main_worktree"
         if real_worktree == current_path or branch == current_branch:
             return "current_worktree"
-        if worktree.locked:
-            return "locked"
-        state = index_lock_state(worktree.path)
-        if state != "clear":
-            return state
         return None
     if branch == current_branch:
         return "current_worktree"
+    return None
+
+
+def lock_skip(worktree: WorktreeInfo | None) -> str | None:
+    """Skip a worktree another process holds, after lifecycle and guard checks."""
+    if worktree is None:
+        return None
+    if worktree.locked:
+        return "locked"
+    state = index_lock_state(worktree.path)
+    if state != "clear":
+        return state
     return None
 
 
@@ -964,7 +986,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             skipped.append((branch, "branch_is_default"))
             continue
         worktree = worktree_by_branch.get(branch)
-        located = location_skip(
+        located = position_skip(
             branch,
             worktree,
             main_worktree=main_worktree,
@@ -978,22 +1000,51 @@ def main(argv: Sequence[str] | None = None) -> int:
         if lifecycle == "active":
             skipped.append((branch, "task_active"))
             continue
+        if lifecycle == "archive_incomplete":
+            skipped.append((branch, "archive_incomplete"))
+            continue
+        # missing: old rule (a) runs before the guard. Failure is task_unknown.
+        # Success keeps proof=pr and skips the later a→b→c→d walk.
+        proof: str | None = None
+        if lifecycle == "missing":
+            proof, reason = prove_content(
+                root,
+                branch,
+                default_branch,
+                upstream=upstream,
+                tracking=tracking,
+                has_gh=has_gh,
+                force_gone=args.force_gone,
+                legacy_only=True,
+                merge_tree_ok=merge_tree_ok,
+            )
+            if proof is None:
+                skipped.append((branch, reason))
+                continue
         if guard_matches_branch(markers, branch):
             skipped.append((branch, "guard_active"))
             continue
-        proof, reason = prove_content(
-            root,
-            branch,
-            default_branch,
-            upstream=upstream,
-            tracking=tracking,
-            has_gh=has_gh,
-            force_gone=args.force_gone,
-            legacy_only=lifecycle != "archived",
-            merge_tree_ok=merge_tree_ok,
-        )
+        locked = lock_skip(worktree)
+        if locked:
+            skipped.append((branch, locked))
+            continue
+        if lifecycle == "archived":
+            proof, reason = prove_content(
+                root,
+                branch,
+                default_branch,
+                upstream=upstream,
+                tracking=tracking,
+                has_gh=has_gh,
+                force_gone=args.force_gone,
+                legacy_only=False,
+                merge_tree_ok=merge_tree_ok,
+            )
+            if proof is None:
+                skipped.append((branch, reason))
+                continue
         if proof is None:
-            skipped.append((branch, reason))
+            skipped.append((branch, "task_unknown"))
             continue
         worktree_path = worktree.path if worktree else None
         if worktree_path:

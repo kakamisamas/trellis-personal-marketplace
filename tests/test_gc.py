@@ -207,7 +207,7 @@ class Sandbox:
         name: str,
         *,
         branch: str | None,
-        status: str = "completed",
+        status: str | None = "completed",
         archived: bool = False,
         pr_url: str | None = None,
         children: list[str] | None = None,
@@ -218,15 +218,16 @@ class Sandbox:
         else:
             directory = self.repo / ".trellis" / "tasks" / name
         directory.mkdir(parents=True, exist_ok=True)
-        payload = {
+        payload: dict[str, object] = {
             "id": name,
             "name": name,
-            "status": status,
             "branch": branch,
             "base_branch": "main",
             "pr_url": pr_url,
             "children": children or [],
         }
+        if status is not None:
+            payload["status"] = status
         (directory / "task.json").write_text(json.dumps(payload), encoding="utf-8")
         return directory
 
@@ -936,6 +937,171 @@ class GarbageCollectorTests(unittest.TestCase):
         self.assertIn("proof=forced", stdout)
         self.assertFalse(self.sandbox.branch_exists("task/test"))
         self.assertFalse(wt.exists())
+
+    def _first_skip_reason(self, stdout: str, branch: str) -> str:
+        prefix = f"[SKIP] {branch}: "
+        for line in stdout.splitlines():
+            if line.startswith(prefix):
+                return line[len(prefix):]
+        self.fail(f"no skip line for {branch}\n{stdout}")
+        return ""
+
+    def _add_clean_branch_worktree(self, branch: str) -> Path:
+        slug = branch.split("/", 1)[1]
+        wt = self.sandbox.repo.parent / "repo-wt" / slug
+        wt.parent.mkdir(parents=True, exist_ok=True)
+        self.sandbox.git("worktree", "add", "-b", branch, str(wt), "main")
+        return wt
+
+    def test_incomplete_archive_records_are_not_deleted(self) -> None:
+        cases = (
+            ("task/arch-progress", "in_progress"),
+            ("task/arch-planning", "planning"),
+            ("task/arch-missing", None),
+        )
+        kept: list[tuple[str, Path, Path]] = []
+        for branch, status in cases:
+            wt = self._add_clean_branch_worktree(branch)
+            directory = self.sandbox.write_task(
+                branch.split("/", 1)[1],
+                branch=branch,
+                status=status,
+                archived=True,
+            )
+            payload = json.loads((directory / "task.json").read_text(encoding="utf-8"))
+            if status is None:
+                self.assertNotIn("status", payload)
+            kept.append((branch, directory, wt))
+        for args in (("--no-fetch",), ("--apply", "--no-fetch")):
+            code, stdout, _ = self.sandbox.run_gc(*args)
+            self.assertEqual(code, 0, stdout)
+            self.assertNotIn("[PLAN] would remove", stdout)
+            self.assertNotIn("[DONE] removed", stdout)
+            for branch, directory, wt in kept:
+                self.assertEqual(self._first_skip_reason(stdout, branch), "archive_incomplete")
+                self.assertTrue(directory.is_dir())
+                self.assertTrue((directory / "task.json").is_file())
+                self.assertTrue(wt.is_dir())
+                self.assertTrue(self.sandbox.branch_exists(branch))
+
+    def test_active_guard_and_lock_skip_task_active_first(self) -> None:
+        branch = "task/active"
+        wt = self._add_clean_branch_worktree(branch)
+        self.sandbox.write_task("active", branch=branch, status="in_progress", archived=False)
+        self.sandbox.write_guard("active", branch)
+        self.sandbox.git("worktree", "lock", str(wt))
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0, stdout)
+        self.assertEqual(self._first_skip_reason(stdout, branch), "task_active")
+        self.assertTrue(wt.is_dir())
+        self.assertTrue(self.sandbox.branch_exists(branch))
+
+    def test_archived_guard_and_index_lock_skip_guard_first(self) -> None:
+        branch = "task/guarded"
+        wt = self._add_clean_branch_worktree(branch)
+        self.sandbox.write_task("guarded", branch=branch, archived=True)
+        self.sandbox.write_guard("guarded", branch, phase="archived")
+        lock = Path(
+            self.sandbox.git(
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-path",
+                "index.lock",
+                cwd=wt,
+            ).stdout.strip()
+        )
+        lock.write_text("", encoding="utf-8")
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0, stdout)
+        self.assertEqual(self._first_skip_reason(stdout, branch), "guard_active")
+        self.assertTrue(wt.is_dir())
+        self.assertTrue(self.sandbox.branch_exists(branch))
+
+    def test_missing_guard_without_merged_pr_is_task_unknown(self) -> None:
+        branch = "task/unknown"
+        self.sandbox.git("branch", branch, "main")
+        self.sandbox.write_guard("unknown", branch)
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0, stdout)
+        self.assertEqual(self._first_skip_reason(stdout, branch), "task_unknown")
+        self.assertTrue(self.sandbox.branch_exists(branch))
+
+    def test_missing_rule_a_then_guard_is_guard_active(self) -> None:
+        wt = self.sandbox.make_verified_task()
+        assert wt is not None
+        self.sandbox.write_guard("test", "task/test")
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0, stdout)
+        self.assertEqual(self._first_skip_reason(stdout, "task/test"), "guard_active")
+        self.assertNotIn("[PLAN] would remove", stdout)
+        self.assertTrue(wt.is_dir())
+        self.assertTrue(self.sandbox.branch_exists("task/test"))
+
+    def test_archived_completed_lock_without_guard_is_locked(self) -> None:
+        wt = self.sandbox.make_verified_task()
+        assert wt is not None
+        self.sandbox.git("merge", "--ff-only", "task/test")
+        self.sandbox.push_main()
+        self.sandbox.write_task("test", branch="task/test", archived=True)
+        self.sandbox.git("worktree", "lock", str(wt))
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0, stdout)
+        self.assertEqual(self._first_skip_reason(stdout, "task/test"), "locked")
+        self.assertNotIn("[PLAN] would remove", stdout)
+        self.assertTrue(wt.is_dir())
+        self.assertTrue(self.sandbox.branch_exists("task/test"))
+
+    def test_position_skip_precedes_lifecycle_and_locks(self) -> None:
+        current = self._add_clean_branch_worktree("task/here")
+        self.sandbox.write_task("here", branch="task/here", status="in_progress")
+        self.sandbox.write_guard("here", "task/here")
+        self.sandbox.git("worktree", "lock", str(current))
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch", cwd=current)
+        self.assertEqual(code, 0, stdout)
+        self.assertEqual(self._first_skip_reason(stdout, "task/here"), "current_worktree")
+        self.assertTrue(current.is_dir())
+
+        self.sandbox.make_verified_task("task/held", worktree=False)
+        self.sandbox.write_task("held", branch="task/held", archived=True)
+        side = self.sandbox.path / "side"
+        self.sandbox.git("worktree", "add", "--detach", str(side), "main")
+        lock = Path(
+            self.sandbox.git(
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-path",
+                "index.lock",
+            ).stdout.strip()
+        )
+        lock.write_text("", encoding="utf-8")
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch", cwd=side)
+        self.assertEqual(code, 0, stdout)
+        self.assertEqual(self._first_skip_reason(stdout, "task/held"), "main_worktree")
+        self.assertTrue((self.sandbox.repo / "tracked.txt").is_file())
+        self.assertTrue(self.sandbox.branch_exists("task/held"))
+        lock.unlink()
+
+    def test_optional_locks_leave_linked_index_bytes_unchanged(self) -> None:
+        wt = self.sandbox.make_verified_task()
+        assert wt is not None
+        index = Path(
+            self.sandbox.git(
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-path",
+                "index",
+                cwd=wt,
+            ).stdout.strip()
+        )
+        before = index.read_bytes()
+        tracked = wt / "tracked.txt"
+        newer = index.stat().st_mtime + 5
+        os.utime(tracked, (newer, newer))
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0, stdout)
+        self.assertIn("[PLAN] would remove", stdout)
+        self.assertEqual(index.read_bytes(), before)
+        self.assertTrue(wt.is_dir())
 
     def test_card_prefix_is_still_report_only(self) -> None:
         self.sandbox.git("branch", "card/keep", "main")
