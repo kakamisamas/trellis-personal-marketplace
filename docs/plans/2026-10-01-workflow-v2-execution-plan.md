@@ -481,6 +481,34 @@ A1（探针门禁）→ A2 → A3 → A4
 
 ## 8. 审核回应
 
+### T3 code review r1（`workflow-v2-T3-review-1001`，对 `f037282`；verdict fail）
+
+| 项 | 取舍 | 处理 | 位置 |
+| --- | --- | --- | --- |
+| T3R-01 `archive/` 位置直接当生命周期结束，未验 `status == completed`；归档目录里 in_progress 的记录也进内容证明，`--apply` 可误删干净 worktree | 采纳（:151 的括号就是条件） | T3 r2：archived 且 `status != completed` → SKIP `archive_incomplete`，不进内容证明 | `trellis_gc.py` `branch_lifecycle` |
+| T3R-02 用 `task.json.name`（slug）当目录名；真实 Trellis 目录是 `MM-DD-slug`、`children` 登记目录名、`task.py archive <task-dir>` → 真实任务永远 `no_history`，兜底归档形同虚设 | 采纳（事实核对：sanctions-radar `08-31-batch1-pipeline` 的 `name=batch1-pipeline`，`children=["08-31-data-schema-sources", …]`） | T3 r2：任务身份一律用目录名（年龄、dirty、children、guard、archive 调用、输出行），夹具改成真实日期前缀 + 不同 name | `trellis_gc.py` `_read_task` / 候选筛选 |
+| T3R-03 `session_auto_commit: false # 注释` 被判成 true，`--apply` 会先移动目录再报 `unexpected_archive_commits` | 采纳 | T3 r2：去行尾注释与引号，布尔别名与 Trellis `coerce_config_bool` 相同（true/false/yes/no/1/0/on/off），无法识别 → 默认 true 并 `[WARN]` | `trellis_gc.py` `session_auto_commit_enabled` |
+| T3R-04 dry-run 仍 `fetch --prune`、`merge-tree --write-tree` 写松散对象、`git status` 刷新 index，不是「零写入」 | 部分采纳 | 「零写入」是主控审核卡的措辞，计划 :146 只要求 dry-run 不删、不归档、不推。fetch 是旧脚本既有行为且有 `--no-fetch`；merge-tree 写对象是计划指定证明 (c) 的 Git 原生副作用，不做对象目录重定向；只采纳给所有 git 子进程加 `GIT_OPTIONAL_LOCKS=0` | `trellis_gc.py` `run` |
+| T3R-05 锁检查先于生命周期/guard；`missing` 任务的旧规则 (a) 晚于 guard，SKIP 原因错位 | 采纳 | T3 r2：拆 `location_skip` 为位置保护与锁检查；顺序 `branch_is_default` → 主检出/当前 worktree → 生命周期（`missing` 先验 (a)，不成立即 `task_unknown`）→ guard → 锁 → 内容证明 → dirty | `trellis_gc.py` `main` |
+| T3R-06 两父用例没有冲突、第二父直接改 `business.py`，不是 :178 的加粗情形 | 采纳（只补夹具） | T3 r2：两个普通父都只改 tasks 且合法，merge 真冲突，解决时在 merge 提交里改 `business.py` | `tests/test_gc.py` |
+| T3S-01 测试集按 git 版本 skip、补 `merge_tree_unavailable` 集成路径 | 延后 | §9 | — |
+| T3S-02 `sync_precondition` 的 `fetch_failed` 独立真实 git 用例 | 采纳（顺手一个用例） | T3 r2 | `tests/test_gc.py` |
+| T3S-03 快照集合差异、PR head fetch 计数断言 | 延后 | §9 | — |
+
+### B0 code review r1（`workflow-v2-B0-review-1001`，对 `626a82d`；verdict fail）
+
+| 项 | 取舍 | 处理 | 位置 |
+| --- | --- | --- | --- |
+| B0R-01 overlay 写后崩溃，重调跳过 result/report/published 却记 `completion_recorded` | 采纳（:225「任一步后崩溃重跑只补齐」） | B0 r2：`_write_cancel_artifacts` 逐制品按存在性补齐，执行者原发布的文件不动 | `runtime.py` `_commit_cancel` |
+| B0R-02 `resume` 把中途写入的 `phase=cancelled` 当已落地 | 采纳（:228「已落地」= `completion_recorded`） | B0 r2：`cancel.json` 存在时只看 `completion_recorded` | `runtime.py` `resume` |
+| B0R-03 窗口释放失败仍记完成，之后不再重试 | 采纳，范围收窄 | B0 r2：cancel 路径看实际释放结果，`pending` → 不记完成、返回 `window_release_failed`、下次重试；不改 `record_window_result` 的 accept 语义 | `runtime.py` `_release_cancel_window` |
+| B0R-04 活 watcher 捕获异常后，自己的 `finalizing` 占位永久阻断自己 | 采纳 | B0 r2：owner 异常退出或重试返回时锁内核对 pid+nonce 释放占位；外来活 pid 仍阻、死 pid 仍接手；不加 TTL/lease | `runtime.py` `_finalize_cancel_locked` |
+| B0R-05 默认 `status --all` 对不存在的 state home mkdir | 采纳 | B0 r2：`DispatchStore(create=False)`，空枚举只打印 `in_flight=0` | `store.py` / `herdr_dispatch.py` |
+| B0R-06 exhausted 门禁测试被同夹具未 claim 的 `runtime_error` 子句遮蔽 | 采纳（只补测试；代码正确） | B0 r2：`result_ready` 组事件 + phase 仍 `running` 的人为夹具隔离该子句 | `tests/test_wait_status.py` |
+| B0S-01 `status_all` 枚举层 `evidence_failed` 二次改判不可达 | 延后 | §9 | — |
+| B0S-02 holder false + attributed 的 CLI 夹具 | 不采纳 | 审核方自判可接受并已实测 | — |
+| B0S-03 直接/包装对照与 `post_cancel_changes` 断言强化 | 延后 | §9 | — |
+
 ### T2 code review r1（`workflow-v2-T2-review-1001`，对 `9131b9b`；verdict fail）
 
 | 项 | 取舍 | 处理 | 位置 |
@@ -594,3 +622,6 @@ A1（探针门禁）→ A2 → A3 → A4
 - `probes.json.serial_events` 作为判定输入（B2）。
 - re-accept 强制 `--reason`（S16）。
 - B1 `install` 反推 Codex `trusted_hash`。
+- `status_all` 枚举层不可达的 `evidence_failed` 二次改判（B0S-01）；`test_cancel_finalize.py` 直接/包装对照改为基线字段断言、直接断言事件的 `post_cancel_changes`（B0S-03）。
+- `tests/test_gc.py` 按 git 版本 skip 需要 `merge-tree --write-tree` 的用例并补 `merge_tree_unavailable` 集成路径（T3S-01）；快照用例的集合差异与 PR head fetch 计数断言（T3S-03）。
+- `trellis_gc.py` dry-run 的 fetch / merge-tree 对象重定向到仓外临时 Git 环境（T3R-04 未采纳部分）。
