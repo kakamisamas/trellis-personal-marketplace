@@ -78,9 +78,9 @@ class MarketplaceContractTests(unittest.TestCase):
             "changed files and reasons",
             "validation and results",
             "unresolved issues or uncertainty",
-            "结束工作",
-            "收尾",
-            "one-shot authorization",
+            "already authorized steps 3.4-3.5",
+            "turn_guard.py stop --reason",
+            "pause-before-merge",
         )
         for phrase in required:
             with self.subTest(phrase=phrase):

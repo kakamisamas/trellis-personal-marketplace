@@ -1,3 +1,5 @@
+<!-- trellis-personal-marketplace solo-github-flow v1.6.0 -->
+
 # Development Workflow
 
 ---
@@ -147,7 +149,7 @@ python3 ./.trellis/scripts/get_context.py --mode phase --step <X.Y>  # detailed 
 ```
 Phase 1: Plan    → classify, get task-creation consent, then write planning artifacts
 Phase 2: Execute → implement only after task status is in_progress; use one red test → green implementation → refactor slice per behavior
-Phase 3: Finish  → verify, update spec, report, then finish through GitHub after approval
+Phase 3: Finish  → verify, update spec, report, then run through GitHub finish (authorized by task.py start)
 ```
 
 ### Request Triage
@@ -256,8 +258,8 @@ The sub-agent may read and modify files and run commands only inside `Workdir`. 
 
 [workflow-state:in_progress]
 Tools: `trellis-implement` / `trellis-research` are sub-agent types only (Task/Agent tool, NOT Skill; there is no skill by these names). `trellis-update-spec` is a skill. `trellis-check` exists as both; prefer the Agent form when verifying after code changes.
-Flow (when full card-run mode is not enabled): `trellis-implement` (one behavior at a time: red test -> green implementation -> refactor while green) -> `trellis-check` -> PR-bound Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
-If this parent task has a saved herdr-dispatch full-run authorization, split and dispatch cards via `~/.skills-manager/skills/herdr-dispatch/SKILL.md` instead of `trellis-implement`. The executor is the main session of the dispatched window, not a `trellis-implement` sub-agent, and dispatches exactly one `trellis-check` before handing off. The controller verifies the handoff against the card's acceptance items itself and does not dispatch another `trellis-implement` or `trellis-check`. The native implement/check dispatch in this block does not apply to that card. After the completion report, continue Phase 3.4-3.5 without waiting for another “结束工作” / “收尾”. Single execute or single review dispatch does not create that authorization. If the local skill is missing, `run doctor` reports the missing entry; ordinary Trellis tasks without card-run mode are unaffected.
+Flow (when full card-run mode is not enabled): `trellis-implement` (one behavior at a time: red test -> green implementation -> refactor while green) -> `trellis-check` -> PR-bound Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report (do not stop) -> Phase 3.4-3.5 run through. Stop only for: product decision, missing credentials/permissions, CI failure outside this task's scope, dirty files of unknown ownership; before stopping run turn_guard.py stop --reason "<why>".
+If this parent task has a saved herdr-dispatch full-run authorization, split and dispatch cards via `~/.skills-manager/skills/herdr-dispatch/SKILL.md` instead of `trellis-implement`. The executor is the main session of the dispatched window, not a `trellis-implement` sub-agent, and dispatches exactly one `trellis-check` before handing off. The controller verifies the handoff against the card's acceptance items itself and does not dispatch another `trellis-implement` or `trellis-check`. The native implement/check dispatch in this block does not apply to that card. After the completion report, continue Phase 3.4-3.5 directly. Single execute or single review dispatch does not create that authorization. If the local skill is missing, `run doctor` reports the missing entry; ordinary Trellis tasks without card-run mode are unaffected.
 Line budget: 2500 changed lines for this task (CI hard limit 3500). After each behavior slice, report the cumulative changed-line count from `python3 scripts/trellis_diff.py --base <base-branch>`. If approaching the budget, finish and open the PR first; remaining work becomes a new subtask.
 If CodeGraph prepare was not skipped, run a health check / necessary `python3 scripts/trellis_codegraph.py sync --worktree <absolute-worktree-path>` before first index use and before the PR-bound Phase 2.2; after source edits, sync before relying on symbols or call paths. When CodeGraph was skipped, do not force the CLI.
 A PR-bound Phase 2.2 is not green until every OCR comment is fixed or rejected with verifiable evidence, or an unavailable/partial/failed review is recorded for that PR body. OCR runs exactly once per pull request: never use `--resume` and never re-review that PR after fixes. A later PR in the same task is a new review, not a deferred whole-task review. trellis-check stays repeatable.
@@ -272,8 +274,8 @@ Dispatch prompt starts with absolute `Active task:` and `Workdir:` lines. Only c
      instead of dispatching sub-agents. -->
 
 [workflow-state:in_progress-inline]
-Flow (when full card-run mode is not enabled): `trellis-before-dev` -> choose one behavior -> red test -> green implementation -> refactor while green -> `trellis-check` -> validation -> PR-bound Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report -> wait for “结束工作” / “收尾” -> automated GitHub finish (Phase 3.4-3.5).
-If this parent task has a saved herdr-dispatch full-run authorization, split and run cards via `~/.skills-manager/skills/herdr-dispatch/SKILL.md` in this session instead of repeating native implement dispatch. The executor is the main session of the dispatched window and dispatches exactly one `trellis-check` before handing off. This session verifies the handoff against the card's acceptance items itself and does not dispatch another `trellis-implement` or `trellis-check`. After the completion report, continue Phase 3.4-3.5 without waiting for another “结束工作” / “收尾”. Single execute or single review dispatch does not create that authorization.
+Flow (when full card-run mode is not enabled): `trellis-before-dev` -> choose one behavior -> red test -> green implementation -> refactor while green -> `trellis-check` -> validation -> PR-bound Phase 2.2 local OCR advisory review -> `trellis-update-spec` -> completion report (do not stop) -> Phase 3.4-3.5 run through. Stop only for: product decision, missing credentials/permissions, CI failure outside this task's scope, dirty files of unknown ownership; before stopping run turn_guard.py stop --reason "<why>".
+If this parent task has a saved herdr-dispatch full-run authorization, split and run cards via `~/.skills-manager/skills/herdr-dispatch/SKILL.md` in this session instead of repeating native implement dispatch. The executor is the main session of the dispatched window and dispatches exactly one `trellis-check` before handing off. This session verifies the handoff against the card's acceptance items itself and does not dispatch another `trellis-implement` or `trellis-check`. After the completion report, continue Phase 3.4-3.5 directly. Single execute or single review dispatch does not create that authorization.
 If CodeGraph prepare was not skipped, run a health check / necessary `python3 scripts/trellis_codegraph.py sync --worktree <absolute-worktree-path>` before first index use and before the PR-bound Phase 2.2; after source edits, sync before relying on symbols or call paths. When CodeGraph was skipped, do not force the CLI. CodeGraph MCP `projectPath` and CLI paths must be the task worktree absolute path.
 A PR-bound Phase 2.2 is not green until every OCR comment is fixed or rejected with verifiable evidence, or an unavailable/partial/failed review is recorded for that PR body. OCR runs exactly once per pull request: never use `--resume` and never re-review that PR after fixes. A later PR in the same task is a new review, not a deferred whole-task review. trellis-check stays repeatable.
 During Phase 3.3, update the architecture baseline Decision Log when module boundaries, dependency direction, or recorded data flow changed. During Phase 3.5, use `scripts/trellis_gc.py --apply` for verified cleanup.
@@ -285,7 +287,7 @@ Read context: `prd.md` -> `design.md if present` -> `implement.md if present`, p
 ### Phase 3: Finish
 - 3.2 Debug retrospective `[on demand]`
 - 3.3 Spec update `[required · once]`
-- 3.4 Commit changes `[required · once]` (after completion approval)
+- 3.4 Commit changes `[required · once]` (authorized by task.py start)
 - 3.5 Automated GitHub wrap-up
 
 > Note: step 3.1 was folded into 2.2 (last-iteration full-scope check) and 3.4 (commit preamble). Numbering kept stable to avoid breaking external references.
@@ -870,14 +872,31 @@ and impact.
 **Spec-sync preamble**: before drafting commits, ask: did this task fix a bug or surface non-obvious knowledge that should land in `.trellis/spec/` so future-you (or future-AI) doesn't repeat the mistake? If yes, return to Phase 3.3 first — spec writes belong in the same task's commit batch, not as a forgotten follow-up.
 
 Present the concise completion report defined in **User-Facing Reports**, then
-stop. The user's reply “结束工作” or “收尾” is one-shot authorization that both
-accepts the implementation and authorizes all remaining mechanical finish
-actions in steps 3.4 and 3.5. Requested implementation changes return to Phase 2.
-If this task already has saved herdr-dispatch full-run authorization from the
-user's 开始, that record is the one-shot authorization; present the report and
-continue 3.4–3.5. Do not wait for another 收尾. `trellis-wrap-up` also recognizes
-that saved authorization. Single execute or single review dispatch does not
-upgrade into this authorization.
+continue. The user's 开始 (`task.py start`) already authorized steps 3.4-3.5:
+it accepted the plan and every remaining mechanical finish action, so present
+the report and continue without waiting for any further reply. Card-run mode
+(saved herdr-dispatch full-run authorization) follows the same rule. Single
+execute or single review dispatch does not upgrade into this authorization.
+Requested implementation changes are a product decision and return to Phase 2.
+
+Stop only for: a product decision, missing credentials/permissions, a CI
+failure outside this task's scope, or dirty files of unknown ownership. Before
+stopping, run
+`python3 ~/.skills-manager/skills/herdr-dispatch/scripts/turn_guard.py stop --reason "<text>"`.
+
+When the user says 「开始，合并前停」, the controller runs
+`turn_guard.py pause-before-merge` after `task.py start`. The flag is written
+on that task's marker and stays after archival. Phase 3.5 checks it before the
+squash merge.
+
+Recovery entry, not a step of the default flow: after a session interrupt or
+after the guard blocks the controller, load `trellis-wrap-up`. Run
+`turn_guard.py status --repo` to list every marker in this repo, including the
+archived task.json path, branch, and PR. When a marker belongs to another
+pane, run `turn_guard.py adopt <task>` to bind it to the current pane, then
+continue from the next unfinished step of 3.4-3.5.
+
+If turn_guard.py is not installed, skip its calls; the flow is unchanged.
 
 After that authorization:
 
@@ -900,8 +919,10 @@ After that authorization:
 7. require a clean task branch before continuing.
 
 Do not ask again before staging, committing, or invoking native finish-work.
-Stop only when safe automation is blocked, and explain the state and recovery
-action in plain language.
+Stop only for: product decision, missing credentials/permissions, CI failure
+outside this task's scope, dirty files of unknown ownership. Before stopping,
+run `python3 ~/.skills-manager/skills/herdr-dispatch/scripts/turn_guard.py stop --reason "<text>"`
+and explain the state and recovery action in plain language.
 
 #### 3.5 Wrap-up reminder
 
@@ -942,6 +963,12 @@ base worktree; lifecycle hook failures are non-blocking.
    is not green, and a size/line-count gate alone is not green;
 5. re-read the PR state, head/base, discussions or review requirements,
    mergeability, and head SHA;
+   before the squash merge, run `turn_guard.py status`. If
+   `pause_before_merge=true`, give the PR link, run
+   `turn_guard.py stop --reason "user asked to pause before merge"`, and stop.
+   That flag is what `turn_guard.py pause-before-merge` wrote after the user
+   said 「开始，合并前停」. After the user says 「继续」, run `turn_guard.py resume`
+   (clears the flag and the budget), then merge;
 6. when every repository gate is satisfied, run
    `gh pr merge --squash --delete-branch --match-head-commit <head-sha>` without
    bypassing branch protection or review policy;
@@ -949,9 +976,27 @@ base worktree; lifecycle hook failures are non-blocking.
    fast-forward it from its upstream;
 8. verify the PR is merged and the remote task branch is absent, then require
    the task worktree to be clean;
-9. from the base worktree run `python3 scripts/trellis_gc.py --apply` and
-   confirm this task's worktree and local branch are gone. If the script is
-   unavailable, use the already captured task path and branch only: re-confirm
+9. after the merge has deleted the remote branch, run `turn_guard.py mark-merged`
+   first. It verifies the same release conditions the guard uses for itself:
+   phase is archived, the branch tip (or `last_seen_head` when the branch is
+   gone) differs from `base_sha`, that head is landed on `origin/<default>`,
+   and a worktree that still exists is clean (`git status --porcelain
+   --untracked-files=all` empty). If it rejects, fix the condition it names,
+   then run it again before continuing. Then from the base worktree run
+   `python3 scripts/trellis_gc.py --apply` and
+   confirm this task's worktree and local branch are gone. GC removes only
+   `task/*` worktrees and branches, and only when the task is archived or its
+   PR is merged. `card/*` and `run/*` worktrees and branches are removed by
+   the dispatch script `run cleanup`. The same --apply run also performs
+   idle-task fallback archival (`trellis_gc.py --archive-idle-days N`, default 7,
+   `0` disables; implemented by T3): it archives only tasks with completion
+   evidence (task.json `status == completed`, or a MERGED PR whose head is landed
+   on origin/<default>) that have been idle for N days, have no worktree on their
+   branch and no guard marker, and only when the sync preconditions hold (this
+   base worktree is the main checkout on the default branch, clean, neither
+   behind nor diverged from origin). The resulting archive commits are pushed to
+   origin/<default>; a failed push is recorded and retried by the next run. If the
+   script is unavailable, use the already captured task path and branch only: re-confirm
    the PR is merged, its head SHA equals the local branch, and the worktree is
    clean, then run `git worktree remove <absolute-worktree-path>`,
    `git branch -D <task-branch>`, and `git worktree prune`;
@@ -959,9 +1004,12 @@ base worktree; lifecycle hook failures are non-blocking.
    `git worktree list`, and remote refs;
 11. report the merge, checks, cleanup, and any residual state in plain language.
 
-If push/authentication fails, checks are missing or fail, GitHub rules block the
+If push/authentication fails, checks are missing, GitHub rules block the
 merge, or cleanup is incomplete, stop at that point and preserve a resumable
-branch/PR. Never claim completion for a partial flow and never weaken tests,
+branch/PR. A failing check inside this task's scope is fixed and re-verified
+first; stop only for a failure outside this task's scope, and record it with
+turn_guard.py stop --reason before stopping.
+Never claim completion for a partial flow and never weaken tests,
 rulesets, or review requirements to make it pass.
 
 ---
@@ -1024,6 +1072,20 @@ Add a `hooks` field to your `task.json`:
 ```
 
 Supported events: `after_create / after_start / after_finish / after_archive`. Note that `after_finish` ≠ a status change (it only clears the active-task pointer); use `after_archive` for "task is done" notifications.
+
+### Turn guard (optional)
+
+`.trellis/config.yaml` calls the turn guard from `hooks.after_start` and `hooks.after_archive`. Each entry is a shell-command string and receives `TASK_JSON_PATH`, the same list shape as the commented `hooks:` block:
+
+```yaml
+hooks:
+  after_start:
+    - "python3 ~/.skills-manager/skills/herdr-dispatch/scripts/turn_guard.py mark-start 2>/dev/null || true"
+  after_archive:
+    - "python3 ~/.skills-manager/skills/herdr-dispatch/scripts/turn_guard.py mark-archive 2>/dev/null || true"
+```
+
+`mark-start` writes the task marker when the task starts. `mark-archive` updates that marker to the archived `task.json` path and does not delete it. Without this hook, or when the script is not installed, the guard stays silent and does not block.
 
 ### Full contract
 
