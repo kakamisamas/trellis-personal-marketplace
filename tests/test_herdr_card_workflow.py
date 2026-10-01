@@ -32,8 +32,8 @@ class HerdrCardWorkflowTests(unittest.TestCase):
             block = self.workflow[start:end]
             with self.subTest(state=state):
                 self.assertIn("herdr-dispatch", block)
-                self.assertIn("结束工作", block)
-                self.assertIn("收尾", block)
+                self.assertIn("do not stop", block)
+                self.assertIn("turn_guard.py stop --reason", block)
                 self.assertIn("local OCR advisory review", block)
 
     def test_planning_keeps_contract_review_optional(self) -> None:
@@ -46,9 +46,9 @@ class HerdrCardWorkflowTests(unittest.TestCase):
         phase_34 = self.workflow.index("#### 3.4 Commit changes")
         phase_35 = self.workflow.index("#### 3.5 Wrap-up reminder")
         block = self.workflow[phase_34:phase_35]
-        self.assertIn("one-shot authorization", block)
+        self.assertIn("already authorized steps 3.4-3.5", block)
         self.assertIn("saved herdr-dispatch full-run authorization", block)
-        self.assertIn("Do not wait for another 收尾", block)
+        self.assertIn("turn_guard.py stop --reason", block)
         self.assertIn("trellis-wrap-up", block)
 
     def test_check_handoff_and_ocr_once_remain(self) -> None:
@@ -78,4 +78,4 @@ class HerdrCardWorkflowTests(unittest.TestCase):
         self.assertIn("is not remotely", plain)
         self.assertIn("installable until that tag exists", plain)
         self.assertIn("Do not run unpublished version refs", self.readme)
-        self.assertIn("gh:kakamisamas/trellis-personal-marketplace#v1.5.1", self.readme)
+        self.assertIn("gh:kakamisamas/trellis-personal-marketplace#v1.6.0", self.readme)
