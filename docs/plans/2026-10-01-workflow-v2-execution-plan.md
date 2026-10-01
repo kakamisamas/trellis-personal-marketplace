@@ -359,6 +359,8 @@ r7 后执行者默认无头（单回合进程，无法中途投递），本卡�
 
 验收：`doctor` 输出 JSON 附报告；`probes.json` 三条主控记录 + Claude pane Worker + 两条无头记录；hooks 文件备份存在；三个 hooks 文件的原有条目一条不少（`install --dry-run` 前后 diff）。
 
+**完成记录（2026-10-02，主控自做）：** `install` 只增不删（备份 `.bak.2026-10-01T15:59:53Z`）；三个主控探针（Claude / Grok / Codex）都是拦 3 次→第 4 次预算放行、`stop --reason` 放行一次、落地后放行（Grok 还验到归档未落地继续拦、rebase 冲突时 `release_blocked: not_landed:conflict, dirty_worktree`）；Claude pane Worker 未交卷拦 3 次、交卷后放行；接管负例日志 `invalid pane binding: mismatch:agent`；Grok、Codex 无头 Stop hook 都触发并拦一次，runner 纠正补交卷 → `headless_stop_supported=true`。`probes.json` 三者 `supported`，`doctor` 全绿。顺手修了 `doctor` 的 `codex_trust`（原按 `turn_guard.py` 字样找，Codex 实际按 `hooks.state."<hooks.json>:stop:<组>:<序>"` 记）。trellis-wrap-up 已改为恢复入口并同步部署。
+
 #### A2 sanctions-radar 应用 PR
 
 前置：T1–T4 已合并到模板仓 `main` 并打 tag `v1.6.0`；B 卡已合并到 `~/.skills-manager/skills` `main`。
