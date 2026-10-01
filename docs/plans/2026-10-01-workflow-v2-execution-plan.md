@@ -486,7 +486,7 @@ B5 落地后：B2+B1+B4（Opus，skills-wt/workflow-v2）──┘  主控自验
 A1 → A2 → A3 → A4（A1 需 B1；A2 需模板 tag v1.6.0 + skills main；A4 需用户确认）
 ```
 
-r8 规则：执行者默认 `claude` / `claude-opus-5-5`（pane）——Grok 在 B5 两轮只修字面项；没有逐轮审核时执行质量比成本重要。主控验收 = 自己复跑全套 + 按卡面验收段逐条抽查 + diff 只碰卡面文件；不再为每张卡开 Codex 审核。`MAX_BUSINESS_ROUNDS = 4` 不变。
+r8 规则（用户 2026-10-01 修订执行者选择）：执行者仍默认 `grok`；卡住才升级到 `claude` / `claude-opus-5-5`——「卡住」= 执行者交 `blocked`，或主控自验两次不过。B5 r3、B3+B6 已派给 Opus（B5 是 Grok 两轮失败后的升级；B3+B6 派出时已出首个提交，不回退），从 B2+B1+B4 起回到 Grok 优先。主控验收 = 自己复跑全套 + 按卡面验收段逐条抽查 + diff 只碰卡面文件；不再为每张卡开 Codex 审核。`MAX_BUSINESS_ROUNDS = 4` 不变。
 
 依赖说明：B0 → B5/B1/B2/B6（`is_landed`、`dispatch_settled`、`dispatch_wait_status`、`finalize_cancel`；B5 在 `dispatch_settled`/`finalize_cancel` 的执行者观察上加 headless 分支）；B5 → B2/B1（`HERDR_DISPATCH_ROUND` 契约、`assignee.session` 分流）；B2 → B1（`paneguard.py` 的绑定文件 schema、锁与生产端写入，B1 只消费；B1 交付后复跑 B1+B2 集成测试）；B3 → B6（收尾允许清单与 `parent_acceptance` 语义）；B2 → A1；T4 + tag → A2；A1 + A2 → A3；B 全部合并 → §6「审核卡改无头」；S0 清理 → 合并门禁。T 卡与 B 卡互不依赖，可交错派工（但同一时刻每个仓只有一张执行卡）。
 
