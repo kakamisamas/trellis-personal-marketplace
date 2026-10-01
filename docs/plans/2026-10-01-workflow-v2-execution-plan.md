@@ -508,6 +508,28 @@ A1（探针门禁）→ A2 → A3 → A4
 | A1 | 探针改为：三种主控 harness 的主控侧守卫 + Claude pane Worker + 无头 Worker 的 hook 触发记录；删 session 补全与事件串行探针 | 探针对象随设计变 |
 | B0 | 不变；已验收 | B5 要在 B0 的 `dispatch_settled`/`finalize_cancel` 上加分支 |
 
+### B5 code review r1（`workflow-v2-B5-review-1001`，对 `266bbe8`；verdict fail）
+
+审核方（Codex xhigh）独立复跑 452 OK，但用自有子进程复现了误杀、组泄漏、双启动、EPERM 误判、身份比对不足、测试钩子改生产缺省。全部阻塞项采纳；主控据此放宽一条卡面限制：既有 pane 测试的**输入**允许加 `assignee.session: pane`（在 `tests/support.py` 的 `task_dict`/plan 夹具一处集中加，或少数字面量任务上加），断言与行为仍一字不变——这是为了拿掉生产代码里的环境钩子（B5R-06）。
+
+| 项 | 取舍 | 理由 | 去向 |
+| --- | --- | --- | --- |
+| B5R-01 `terminate` 不核身份就对记录的 pid/pgid 发信号（`headless.py:162-198`） | 采纳 | pid/pgid 都可复用；审核方复现对不同 argv 的 `sleep` 进程发了 SIGTERM | B5 r2：发 TERM/KILL 前核对 wrapper argv 与 `os.getpgid(pid) == 记录 pgid`，不符 → 不发信号、返回 `identity_changed` 诊断、不结算 |
+| B5R-02 包装进程死 ≠ 进程组退出；cancel/timeout 无条件结算 holder；纠正可能在旧 harness 仍活时启动 | 采纳 | 复现：只杀包装进程后 `cancel` → `cancelled` + settled，但 harness 子/孙进程仍活；子进程忽略 TERM 时 `terminate` 0.06s 即返回 | B5 r2：以 `ps -o pid,pgid,stat -g <pgid>`（或等价）跟踪整组非僵尸成员；`terminate` 返回 `exited|still_alive|unverified`；未确认退出 → 不 settled、不 `cancelled`、不 `failed`，记 `needs_attention`；纠正前先确认旧组已停 |
+| B5R-03 watcher 在 `process.json` 写后、投递记录写前死亡，恢复会双启动 | 采纳 | 复现 PID 89419/89423 同时活 | B5 r2：`_maybe_send_headless`/`prepare` 先看本轮 `process.json`：存在且身份匹配 → 接管（补投递记录 + `running`），绝不覆盖活进程；不存在才 spawn；加写入边界崩溃夹具 |
+| B5R-04 EPERM 被当作已退出 | 采纳 | 卡面第 6 条明写非 ESRCH → `query_failed` | B5 r2：只有 ESRCH 算消失；EPERM/`ps` 失败 → `query_failed`，保持在飞、不结算；三种各加断言 |
+| B5R-05 身份不是 `(wrapper_pid, started_at, argv)` 三元组，`ps` 比对是子串 | 采纳 | 复现 `rounds/10` 的 wrapper 被 `rounds/1` 查询判为 match；改 `started_at`/`argv` 仍 match | B5 r2：`state.assignee` 保存三元组；`alive`/`identity_status` 按完整 argv 边界比对（round_dir 作为独立 token 相等，不是子串）；`classify_identity` 比对 expected 三元组；纠正进程更新基线 |
+| B5R-06 生产 `resolve_session` 读 `HERDR_DISPATCH_DEFAULT_SESSION`，子进程还继承 | 采纳 | 主控/Worker 环境带该变量就静默改路由；不在指纹、不在契约 | B5 r2：删掉钩子；缺省只由 harness/显式 session 决定；既有 pane 测试在**输入**侧加 `session: pane`（见上） |
+| B5R-07 binary 路径含 `fake_harness` 即放行 cursor 门闩 | 采纳 | 复现普通目录名软链接绕过失败关闭 | B5 r2：删路径子串判断；只保留显式 `HERDR_DISPATCH_CURSOR_HEADLESS=1`（用户主动开关），cursor 假 harness 测试显式设它 |
+| B5R-08 「无 session id」两例手改记录、retry 用例手造 `status=retry`、cancel 两例未与 pane 稳定字段逐字段对照、missing_report 只断言字符串 | 采纳 | 卡面验收段明写这些情形；手造状态挡不住 B5R-03 | B5 r2：假 harness 加 `no_session_id` 模式（真不输出 id）并用 codex 走真实包装进程；retry 用例走真实 `assignee_start_failed` → claim → `resume --retry-start`，另加「包装进程仍活 → 不二次启动」；cancel 活/死两例对照 pane 的 `_stable_overlay`/`_stable_event` + published 哈希 + `collect --claim`；missing_report 断言 `reason`/`code` 与恰好 40 行尾部 |
+| B5R-09 full-run 的 `_session_plan` 以 `pane_id` 缺失判 `no_session`，headless 返工永远不续会话；SKILL/adapters.md 承诺不成立 | 采纳 | 卡面第 5 条：`reuse` = 用上一轮会话 id 续；`run` 的返工轮是主路径 | B5 r2：`_session_plan` 对 headless 以上一轮 `process.json.session_id` 决定 `reuse`（有 → resume；无 → 新进程 + 报告头部；包装进程仍活 → 与 pane busy 同策略）；加 `run` 第 2 轮集成用例；文档照实 |
+| B5S-01 纠正进程共用初轮时限，可能零预算 | 采纳 | 改动小 | B5 r2：纠正进程独立预算 `headless_correction_timeout_s`（默认 600s），写 recovery.md |
+| B5S-02 `status --all` headless 文案含空格，按空白切列的夹具会错列 | 采纳（最小形） | 生产无空白切列消费者；但 token 去空格零成本 | B5 r2：文案改为单 token `headless:pid=<n>:alive` / `headless:pid=<n>:exited(<code>)`；结构化输出进 §9 |
+| B5S-03 reuse 用例只测 grok，没测 codex「id 只在 process.json」 | 采纳 | 并入 B5R-08 | B5 r2 |
+| B5S-04 `addCleanup` 先 kill 后 wait 的 LIFO 顺序白等 30–60s | 采纳 | 顺手减测试时长 | B5 r2 |
+| B5S-05 `release_card_window` 资格判断在 headless 分支之前，报告表的「总是 closed/headless」不成立 | 采纳 | headless 没有窗口，提前返回更直白 | B5 r2：headless 判断提前到资格判断之前 + 返回值断言 |
+| 审核方附带：cancel overlay 的 `blocker/limitations` 文字与 recovery.md:56 「取消不杀执行者」只对 pane 成立 | 采纳 | headless 已终止进程组，文字须照实 | B5 r2：overlay 文字按 session 分支；recovery.md 限定 pane |
+
 ### T4 code review r1（`workflow-v2-T4-review-1001`，对 `a47567c`；verdict fail）
 
 | 项 | 取舍 | 理由 | 去向 |
@@ -675,4 +697,5 @@ B0R-01..06 审核方独立核实已修复（制品四个写入边界、恢复时
 - `trellis_gc.py` dry-run 的 fetch / merge-tree 对象重定向到仓外临时 Git 环境（T3R-04 未采纳部分）。
 - B2 活动协议（`activity.json`/`turn.json`/`busy-state.json`）、状态标签 `report-metadata`、`fill_session` 三处同步与 A1 的事件串行探针（r7 延后：只剩 Claude Worker 走 pane）。
 - `claude -p` 无头路径（额度政策定了再说）。
+- `status --all` 结构化输出（`--json`），替代按空白切列（B5S-02 的完整形）。
 - B7 转向收件箱（pane 路径）。
