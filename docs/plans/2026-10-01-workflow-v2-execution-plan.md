@@ -530,6 +530,22 @@ A1（探针门禁）→ A2 → A3 → A4
 | B5S-05 `release_card_window` 资格判断在 headless 分支之前，报告表的「总是 closed/headless」不成立 | 采纳 | headless 没有窗口，提前返回更直白 | B5 r2：headless 判断提前到资格判断之前 + 返回值断言 |
 | 审核方附带：cancel overlay 的 `blocker/limitations` 文字与 recovery.md:56 「取消不杀执行者」只对 pane 成立 | 采纳 | headless 已终止进程组，文字须照实 | B5 r2：overlay 文字按 session 分支；recovery.md 限定 pane |
 
+### B5 code review r2（`workflow-v2-B5-review-1001` round 2，对 `bf6e784`；verdict fail）
+
+B5R-04/06/07/08/09 与 B5S-01..05 核实已修复；B5R-01/02/03/05 主体改善但仍有同类安全缺口（拆成 B5R-10..14）。审核方独立全套 468 OK。Grok 在 B5 上两轮失败 → 按流水线规则 B5 r3 交给 `claude` / `claude-opus-5-5`（pane）。全部采纳：
+
+| 项 | 取舍 | 理由 | 去向 |
+| --- | --- | --- | --- |
+| B5R-10 wrapper 身份只认 basename `headless.py`，同名异路径脚本（例如主检出 vs worktree 的 headless.py）仍被杀；真实 watcher/cancel 直接用 `identity_status`/`terminate`，没消费 `_classify_headless_identity` 的三元组 mismatch | 采纳 | 本机就同时有两份 headless.py；身份核验必须是观察与信号资格共用的同一函数 | B5 r3：以完整包装命令（整串）而非 basename 比对；`observe`/`terminate`/`_qualify_headless_cancel` 共用一个核验 |
+| B5R-11 `effective_process` 在 `correction.exit_code` 非空后退回原进程基线，纠正组的孙进程漏查；liveness/retry/full-run busy 同样漏查纠正组 | 采纳 | 子进程退出码不是整组退出证明；`state.assignee` 与 `effective_process` 基线不一致 | B5 r3：纠正记录一经创建即为本轮身份基线；结算/cancel/busy/retry 检查本轮所有已创建的进程组 |
+| B5R-12 `adopt` 只补投递与阶段，不重建 `state.assignee`；在 `process.json` 写后、`_record_assignee` 前崩溃 → 恢复后 cancel 把活组当 `no_assignee` | 采纳 | 三个持久化边界只堵了最后一个 | B5 r3：接管时从 task + process.json 重建并校验完整 assignee，再补投递；加该边界夹具 |
+| B5R-13 对 `ps -o command=` 做 `shlex.split`，含空格路径的 round_dir 被切开 → 真实 runner 判 `identity_changed` | 采纳 | macOS `ps` 不加引号，split 还原不了边界 | B5 r3：不把 ps 展示串当 shell 输入；整串与记录的包装命令比对（或由包装进程自记其 `ps` 展示串作基线）；加带空格路径的真实 runner 用例 |
+| B5R-14 command 为 `<defunct>` 即视为僵尸，活进程 argv[0] 也可以是 `<defunct>` | 采纳 | 展示文案不是内核退出证据 | B5 r3：stat Z 才排除；非 Z 的 `<defunct>` 用 `os.getpgid` ESRCH 等可靠证据再判，否则按活成员/`query_failed` |
+| B5R-15 recovery.md:76 的 retry-start 条件仍是旧投递限制；protocol.md:17 未写终止确认失败 → `needs_attention` | 采纳 | 文档照实 | B5 r3 |
+| B5S-06 protocol.md 写明 harness argv / `wrapper_argv` / 保存基线的对应关系 | 采纳 | 便宜 | B5 r3 |
+| B5S-07 cancel 对照依赖两例同跑的全局快照；旧手造 `status=retry` 用例可删 | 采纳 | 便宜 | B5 r3：单测试内生成活/死两路制品再比较；删旧人工状态用例 |
+| B5S-08 cursor 软链接测试写死 `/Users/davidl/.local/bin/cursor-agent` | 采纳 | 便宜 | B5 r3：从排除 fake bin 的 PATH 查找，找不到则 skip |
+
 ### T4 code review r1（`workflow-v2-T4-review-1001`，对 `a47567c`；verdict fail）
 
 | 项 | 取舍 | 理由 | 去向 |
