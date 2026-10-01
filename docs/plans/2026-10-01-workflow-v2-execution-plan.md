@@ -481,6 +481,14 @@ A1（探针门禁）→ A2 → A3 → A4
 
 ## 8. 审核回应
 
+### T2 code review r1（`workflow-v2-T2-review-1001`，对 `9131b9b`；verdict fail）
+
+| 项 | 取舍 | 处理 | 位置 |
+| --- | --- | --- | --- |
+| T2R-01 3.5 第 9 步把兜底归档写成「独立维护命令、不属于本步」，与 T3 `--archive-idle-days` 默认 7 冲突 | 采纳（事实属实：§0 #1、T3 第 4 条已定默认 7，`--apply` 即启用；主控 T2 卡面第 4 条自己写错） | T2 r2：该句改为「同一次 `--apply` 也做兜底归档（默认 7、0 关闭），只认完成证据 + 闲置 + 同步前置，归档提交推到 origin/<default>」；不改 T3 默认值 | workflow.md 3.5 第 9 步 |
+| T2S-01 pause/resume 作用于当前 pane 索引的 marker，建议说明多 marker 情形 | 不采纳 | 单用户单机下一个主控 pane 通常只有一个 started 任务；B1 `status` 本就列出该 pane 全部 marker，文案不再加分支 | — |
+| T2S-02 3.5 末段「checks … fail → stop」比新规则宽 | 采纳（r2 顺手改，一句话） | 区分范围内（先修复再验证）与范围外（`stop --reason` 后停） | workflow.md 3.5 末段 |
+
 ### 第 5 轮（B 卡复审 r5 → r6，`workflow-v2-plan-bcards-review-1001`，按 §6「审核意见取舍」处理）
 
 | 项 | 取舍 | 处理 | 位置 |
