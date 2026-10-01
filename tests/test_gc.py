@@ -1868,6 +1868,54 @@ class GarbageCollectorTests(unittest.TestCase):
                     (box.repo / ".trellis" / "tasks" / "archive" / month / dir_name).exists()
                 )
 
+    def test_earliest_inline_comment_marker_disables_or_archives(self) -> None:
+        false_samples = (
+            "session_auto_commit: false\t# manual commit # note\n",
+            'session_auto_commit: "false"\t# a # b\n',
+            "session_auto_commit: false # a\t# b\n",
+            "session_auto_commit: no\t# x # y\n",
+        )
+        for index, config in enumerate(false_samples):
+            with self.subTest(config=config):
+                box = self.sandbox if index == 0 else Sandbox()
+                if box is not self.sandbox:
+                    self.addCleanup(box.cleanup)
+                dir_name = self._prepare_archivable(box, "comment", config, 91)
+                origin = box.head("origin/main")
+                bare = box.git("rev-parse", "refs/heads/main", cwd=box.origin).stdout.strip()
+                code, stdout, _ = box.run_gc(
+                    "--apply",
+                    "--no-fetch",
+                    extra_env={"TRELLIS_GC_TASK_FAIL": "1"},
+                )
+                self.assertEqual(code, 0, stdout)
+                self.assertIn(f"[SKIP] {dir_name}: auto_commit_disabled", stdout)
+                self.assertNotIn("[DONE] archived", stdout)
+                self.assertNotIn("[WARN] archive", stdout)
+                self.assertEqual(box.head("origin/main"), origin)
+                self.assertEqual(
+                    box.git("rev-parse", "refs/heads/main", cwd=box.origin).stdout.strip(),
+                    bare,
+                )
+                self.assertEqual(box.git("status", "--porcelain").stdout.strip(), "")
+                self.assertTrue((box.repo / ".trellis" / "tasks" / dir_name).is_dir())
+                month = datetime.now(timezone.utc).strftime("%Y-%m")
+                self.assertFalse(
+                    (box.repo / ".trellis" / "tasks" / "archive" / month / dir_name).exists()
+                )
+        box = Sandbox()
+        self.addCleanup(box.cleanup)
+        dir_name = self._prepare_archivable(
+            box,
+            "comment-true",
+            "session_auto_commit: true\t# a # b\n",
+            95,
+        )
+        code, stdout, _ = box.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0, stdout)
+        self.assertIn(f"[DONE] archived {dir_name}", stdout)
+        self.assertFalse((box.repo / ".trellis" / "tasks" / dir_name).exists())
+
     def test_commented_indented_and_missing_config_still_archives(self) -> None:
         samples = (
             "# session_auto_commit: false\n",

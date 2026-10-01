@@ -465,13 +465,12 @@ _FALSE_CONFIG_VALUES = {"false", "no", "0", "off"}
 
 
 def _config_scalar(raw_value: str) -> str:
-    """Drop a trailing comment, then paired quotes, and lowercase the scalar."""
+    """Drop the earliest trailing comment, then paired quotes, and lowercase."""
     value = raw_value
-    for marker in (" #", "\t#"):
-        index = value.find(marker)
-        if index != -1:
-            value = value[:index]
-            break
+    indexes = [value.find(marker) for marker in (" #", "\t#")]
+    found = [index for index in indexes if index != -1]
+    if found:
+        value = value[: min(found)]
     value = value.strip()
     if not value or value.startswith("#"):
         return ""
@@ -1076,9 +1075,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             if proof is None:
                 skipped.append((branch, reason))
                 continue
-        if proof is None:
-            skipped.append((branch, "task_unknown"))
-            continue
         worktree_path = worktree.path if worktree else None
         if worktree_path:
             status = run(["git", "status", "--porcelain", "--untracked-files=all"], cwd=worktree_path)
