@@ -476,6 +476,18 @@ B0 → B5 → B2 → B1 → B4 → B3 → B6 → (B7)   每张：同上 → 合�
 A1（探针门禁）→ A2 → A3 → A4
 ```
 
+**r8（用户决定，2026-10-01 16:30，B5 r3 进行中）：去掉逐轮 Codex 审核，B 轨道合并派工并行化。** 理由：每轮「执行 ≈ 1h + xhigh 审核 ≈ 1h + 返工」串行，B5 一张卡 3.5h 仍未过；拆卡是为了可审、可返工，不是为了并行——逐轮审核一撤，细拆就失去大半意义。
+
+```text
+B5 r3（Opus，skills-wt/workflow-v2）────────────────┐  主控自验（全套 + 对照 B5R-10..15）→ accept
+B3+B6（Opus，新 worktree skills-wt/workflow-v2-b3b6，起点 bf6e784）│  并行：runcmd/cleanup 与 watcher/runtime 不同函数
+B5 落地后：B2+B1+B4（Opus，skills-wt/workflow-v2）──┘  主控自验 → accept
+主控把 workflow-v2-b3b6 合回 workflow-v2（冲突自己解）→ 一次 Codex code review（high，范围 845d35c..合并后）→ 一轮 Opus 修 → 合入 skills main
+A1 → A2 → A3 → A4（A1 需 B1；A2 需模板 tag v1.6.0 + skills main；A4 需用户确认）
+```
+
+r8 规则：执行者默认 `claude` / `claude-opus-5-5`（pane）——Grok 在 B5 两轮只修字面项；没有逐轮审核时执行质量比成本重要。主控验收 = 自己复跑全套 + 按卡面验收段逐条抽查 + diff 只碰卡面文件；不再为每张卡开 Codex 审核。`MAX_BUSINESS_ROUNDS = 4` 不变。
+
 依赖说明：B0 → B5/B1/B2/B6（`is_landed`、`dispatch_settled`、`dispatch_wait_status`、`finalize_cancel`；B5 在 `dispatch_settled`/`finalize_cancel` 的执行者观察上加 headless 分支）；B5 → B2/B1（`HERDR_DISPATCH_ROUND` 契约、`assignee.session` 分流）；B2 → B1（`paneguard.py` 的绑定文件 schema、锁与生产端写入，B1 只消费；B1 交付后复跑 B1+B2 集成测试）；B3 → B6（收尾允许清单与 `parent_acceptance` 语义）；B2 → A1；T4 + tag → A2；A1 + A2 → A3；B 全部合并 → §6「审核卡改无头」；S0 清理 → 合并门禁。T 卡与 B 卡互不依赖，可交错派工（但同一时刻每个仓只有一张执行卡）。
 
 规则：
