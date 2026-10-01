@@ -560,7 +560,7 @@ B5R-04/06/07/08/09 与 B5S-01..05 核实已修复；B5R-01/02/03/05 主体改善
 
 ### B 轨道最终 code review（`workflow-v2-Btrack-review-1001`，r8 唯一一次审核，对 `845d35c..7af755e`；verdict fail）
 
-B5 r3（Opus）、B3+B6（Opus）、B2+B1+B4（Grok）均由主控自验后合并（618 OK）。审核方独立全套 618 OK；合并正确性、既有测试改动范围、跨卡环境/绑定一致性核实一致。6 条阻塞 + 3 条建议，取舍如下；修复由一轮 Grok 派单 `workflow-v2-Bfix-1001` 完成（起点 `7af755e`），主控自验后合入 skills main，不再开第二轮审核。
+B5 r3（Opus）、B3+B6（Opus）、B2+B1+B4（Grok）均由主控自验后合并（618 OK）。审核方独立全套 618 OK；合并正确性、既有测试改动范围、跨卡环境/绑定一致性核实一致。6 条阻塞 + 3 条建议，取舍如下；修复由一轮 Grok 派单 `workflow-v2-Bfix-1001` 完成（起点 `7af755e` → `17acbd1`，6 提交，630 OK），主控自验（全套 + 审核方三个复现脚本 `handoff_check`/`review_checks`/`fetch_check` 在 `17acbd1` 上复跑全过）后合入 skills main（merge 提交 `4215a66`），不再开第二轮审核。
 
 | 项 | 取舍 | 理由 | 去向 |
 | --- | --- | --- | --- |
