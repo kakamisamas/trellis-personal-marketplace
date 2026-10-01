@@ -78,4 +78,4 @@ class HerdrCardWorkflowTests(unittest.TestCase):
         self.assertIn("is not remotely", plain)
         self.assertIn("installable until that tag exists", plain)
         self.assertIn("Do not run unpublished version refs", self.readme)
-        self.assertIn("gh:kakamisamas/trellis-personal-marketplace#v1.5.1", self.readme)
+        self.assertIn("gh:kakamisamas/trellis-personal-marketplace#v1.6.0", self.readme)
