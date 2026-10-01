@@ -382,6 +382,8 @@ cwd `~/Documents/Project/sanctions-radar`，分支 `chore/workflow-v2`（从最�
 
 验收：PR diff 只含 `.trellis/workflow.md`、`.trellis/config.yaml`（仅新增 `hooks:` 块）、`scripts/trellis_gc.py`、`.agents/skills/trellis-setup/SKILL.md`、`.claude/skills/trellis-setup/SKILL.md`、`.grok/skills/trellis-setup/SKILL.md`、可能的 `AGENTS.md`；`git diff` 里 `registry:` 块无变化；`head -1 .trellis/workflow.md` 含 `v1.6.0`；三份 SKILL.md 的 bootstrap URL 都是 `v1.6.0`；合并后再执行任一 SKILL.md 的 bootstrap 命令 `--dry-run`，`scripts/trellis_gc.py` 显示 `[SKIP] already current`（不会降级）。
 
+**完成记录（2026-10-02，Grok 无头 `workflow-v2-A2-1002` + 主控补充）：** Grok 提交 `1535ce4` 只碰验收允许的 7 个文件（workflow.md 首行 v1.6.0、config.yaml 仅加 hooks、trellis_gc.py 与 tag 内容 cmp 一致、三份 SKILL.md v1.6.0、GC dry-run 归档候选 0 与 §1 预期一致）。主控验收时发现卡面允许清单漏了两样：v1.6.0 的 workflow.md 直接引用 `scripts/trellis_diff.py` / `scripts/trellis_codegraph.py`（行预算、CodeGraph prepare/sync），installer 已装但执行者按清单还原了；主控在同一分支补提交 `d75a6d5`：加回这两个脚本和 `.trellis/templates/ci/tests-python.yml`（模板，项目 tests.yml 已跑 pytest，不另启用），并把与旧 `.agents` 副本逐字相同的 `.cursor/.opencode/.devin` SKILL.md 同步到 v1.6.0。`pr-gate.yml` 保留项目自有 4000 行 awk gate（installer `[MANUAL]`；v1.6.0 版会换成 `trellis_diff.py --check` 3500 行，列入 §9）。PR #120 CI 三项绿 → squash 合并 `e93b2a7`；合并后在主检出跑 `setup.sh --dry-run`：所有 helper/skill `[SKIP] already current`，只剩 pr-gate `[MANUAL]` 与 `[PLAN] .github/skills/trellis-setup/SKILL.md`（仓库有 `.github/`，未装，§9）。worktree 与 `chore/workflow-v2` 分支已删。
+
 #### A3 真实冒烟
 
 前置：A1、A2 完成。新 Herdr 标签页起一个 Grok 主控（用户平时的主控之一），在 sanctions-radar 走一个极小的真实任务（例如 `README.md` 补一句 workflow v2 说明）：规划 → 「开始」→ 观察它不在报告后停下，一路到 squash 合并与 GC。记录：是否被守卫拦过、拦的原因是否正确、marker 是否在合并后消失、最终 worktree/分支是否清干净。同样流程再用 Claude 主控跑一次（用「开始，合并前停」验证暂停、`resume`、继续合并）。任一失败 → 回到对应 B/T 卡返工。
@@ -747,3 +749,4 @@ B0R-01..06 审核方独立核实已修复（制品四个写入边界、恢复时
 - `turn_guard.py install` 识别同事件下旧的 turn_guard 命令路径并替换（从临时 worktree 误装后再从主检出 install 能自动修正）（BS-02）。
 - `status` 的 headless 格子消费 `assignee_liveness`/`round_members`，wrapper 已退出但残组仍活时显示 `group_alive`（BS-03）。
 - B7 转向收件箱（pane 路径）。
+- sanctions-radar `.github/workflows/pr-gate.yml` 换成 v1.6.0 的 `trellis_diff.py --check`（3500 行；现为项目自有 4000 行 awk gate，installer `[MANUAL]`），以及 `.github/skills/trellis-setup/SKILL.md`（installer `[PLAN]`，未装）（A2 验收时发现）。
