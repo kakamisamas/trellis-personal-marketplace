@@ -82,13 +82,17 @@ class Sandbox:
         *args: str,
         cwd: Path | None = None,
         check: bool = True,
+        extra_env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
+        env = self._git_env()
+        if extra_env:
+            env.update(extra_env)
         proc = subprocess.run(
             ["git", *args],
             cwd=cwd or self.repo,
             capture_output=True,
             text=True,
-            env=self._git_env(),
+            env=env,
             check=False,
         )
         if check and proc.returncode != 0:
@@ -130,6 +134,48 @@ class Sandbox:
 
     def head(self, rev: str, cwd: Path | None = None) -> str:
         return self.git("rev-parse", rev, cwd=cwd).stdout.strip()
+
+    def write_task(
+        self,
+        name: str,
+        *,
+        branch: str | None,
+        status: str = "completed",
+        archived: bool = False,
+        pr_url: str | None = None,
+        children: list[str] | None = None,
+        month: str = "2026-09",
+    ) -> Path:
+        if archived:
+            directory = self.repo / ".trellis" / "tasks" / "archive" / month / name
+        else:
+            directory = self.repo / ".trellis" / "tasks" / name
+        directory.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "id": name,
+            "name": name,
+            "status": status,
+            "branch": branch,
+            "base_branch": "main",
+            "pr_url": pr_url,
+            "children": children or [],
+        }
+        (directory / "task.json").write_text(json.dumps(payload), encoding="utf-8")
+        return directory
+
+    def write_guard(self, task: str, branch: str, phase: str = "active") -> Path:
+        common = Path(self.git("rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip())
+        directory = common / "trellis-guard"
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"{task}.json"
+        path.write_text(
+            json.dumps({"task": task, "branch": branch, "phase": phase}),
+            encoding="utf-8",
+        )
+        return path
+
+    def push_main(self) -> None:
+        self.git("push", "origin", "main")
 
     def make_verified_task(
         self,
@@ -194,7 +240,8 @@ class GarbageCollectorTests(unittest.TestCase):
         code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
         self.assertEqual(code, 0)
         self.assertIn("[DONE] removed worktree", stdout)
-        self.assertIn("merged PR and head SHA verified", stdout)
+        self.assertIn("proof=pr", stdout)
+        self.assertIn("[INFO] default branch: origin/main", stdout)
         self.assertFalse(self.sandbox.branch_exists("task/test"))
         self.assertFalse(wt.exists())
         self.assertIn("removed=1 archived=0 skipped=0 managed_by_dispatch=0 pending_push=0", stdout)
@@ -202,9 +249,10 @@ class GarbageCollectorTests(unittest.TestCase):
     def test_live_upstream_is_retained(self) -> None:
         wt = self.sandbox.make_verified_task(gone=False)
         assert wt is not None
+        self.sandbox.write_task("test", branch="task/test", archived=True)
         code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
         self.assertEqual(code, 0)
-        self.assertIn("upstream still exists", stdout)
+        self.assertIn("[SKIP] task/test: tree_differs", stdout)
         self.assertTrue(self.sandbox.branch_exists("task/test"))
         self.assertTrue(wt.is_dir())
         self.assertNotIn("[DONE] removed", stdout)
@@ -215,7 +263,7 @@ class GarbageCollectorTests(unittest.TestCase):
         (wt / "local.txt").write_text("dirty\n", encoding="utf-8")
         code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
         self.assertEqual(code, 0)
-        self.assertIn("worktree dirty or unreadable", stdout)
+        self.assertIn("[SKIP] task/test: dirty", stdout)
         self.assertIn("local.txt", stdout)
         self.assertTrue(self.sandbox.branch_exists("task/test"))
         self.assertTrue(wt.is_dir())
@@ -227,26 +275,37 @@ class GarbageCollectorTests(unittest.TestCase):
         code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch", "--force-dirty")
         self.assertEqual(code, 0)
         self.assertIn("[DONE] removed worktree", stdout)
+        self.assertIn("proof=pr", stdout)
         self.assertFalse(self.sandbox.branch_exists("task/test"))
         self.assertFalse(wt.exists())
 
     def test_force_dirty_does_not_override_unverified(self) -> None:
         wt = self.sandbox.make_verified_task(pr_head="deadbeef" * 5)
         assert wt is not None
+        self.sandbox.write_task("test", branch="task/test", archived=True)
         (wt / "local.txt").write_text("dirty\n", encoding="utf-8")
         code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch", "--force-dirty")
         self.assertEqual(code, 0)
-        self.assertIn("differs from merged PR head", stdout)
+        self.assertIn("[SKIP] task/test: tree_differs", stdout)
         self.assertTrue(self.sandbox.branch_exists("task/test"))
         self.assertTrue(wt.is_dir())
         self.assertNotIn("[DONE] removed", stdout)
 
     def test_local_head_after_merge_is_retained(self) -> None:
-        wt = self.sandbox.make_verified_task(pr_head="cafebabe" * 5)
+        wt = self.sandbox.make_verified_task()
         assert wt is not None
+        merged = self.sandbox.head("task/test")
+        self.sandbox.git("checkout", "main")
+        self.sandbox.git("merge", "--ff-only", "task/test")
+        self.sandbox.push_main()
+        (wt / "tracked.txt").write_text("after merge\n", encoding="utf-8")
+        self.sandbox.git("add", "tracked.txt", cwd=wt)
+        self.sandbox.git("commit", "-m", "after merge", cwd=wt)
+        self.sandbox.set_pr("task/test", "MERGED", merged)
+        self.sandbox.write_task("test", branch="task/test", archived=True)
         code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
         self.assertEqual(code, 0)
-        self.assertIn("differs from merged PR head", stdout)
+        self.assertIn("[SKIP] task/test: tree_differs", stdout)
         self.assertTrue(self.sandbox.branch_exists("task/test"))
         self.assertTrue(wt.is_dir())
 
@@ -265,7 +324,7 @@ class GarbageCollectorTests(unittest.TestCase):
         assert wt is not None
         code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch", cwd=wt)
         self.assertEqual(code, 0)
-        self.assertIn("current branch", stdout)
+        self.assertIn("[SKIP] task/test: current_worktree", stdout)
         self.assertTrue(self.sandbox.branch_exists("task/test"))
         self.assertTrue(wt.is_dir())
 
@@ -275,7 +334,7 @@ class GarbageCollectorTests(unittest.TestCase):
         self.sandbox.git("worktree", "add", str(side), "main")
         code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch", cwd=side)
         self.assertEqual(code, 0)
-        self.assertIn("checked out in main worktree", stdout)
+        self.assertIn("[SKIP] task/test: main_worktree", stdout)
         self.assertTrue(self.sandbox.branch_exists("task/test"))
         self.assertTrue((self.sandbox.repo / "tracked.txt").is_file())
 
@@ -378,3 +437,315 @@ class GarbageCollectorTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertFalse(wt.exists())
         self.assertFalse(parent.exists())
+
+    def test_merge_tree_version_gate(self) -> None:
+        self.assertTrue(trellis_gc.version_at_least("git version 2.54.0", (2, 38)))
+        self.assertTrue(trellis_gc.version_at_least("git version 2.38.0", (2, 38)))
+        self.assertFalse(trellis_gc.version_at_least("git version 2.37.9", (2, 38)))
+        self.assertTrue(trellis_gc.merge_tree_supported())
+
+    def test_no_upstream_squash_archived_task_is_removed(self) -> None:
+        self.sandbox.git("checkout", "-b", "task/squash")
+        (self.sandbox.repo / "feature.txt").write_text("one\n", encoding="utf-8")
+        self.sandbox.git("add", "feature.txt")
+        self.sandbox.git("commit", "-m", "add one")
+        (self.sandbox.repo / "feature.txt").write_text("two\n", encoding="utf-8")
+        self.sandbox.git("add", "feature.txt")
+        self.sandbox.git("commit", "-m", "edit two")
+        self.sandbox.git("checkout", "main")
+        self.sandbox.git("merge", "--squash", "task/squash")
+        self.sandbox.git("commit", "-m", "squash task/squash")
+        self.sandbox.push_main()
+        self.sandbox.write_task("squash", branch="task/squash", archived=True)
+        code, planned, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[PLAN] would remove local branch task/squash (proof=tree_equal)", planned)
+        self.assertTrue(self.sandbox.branch_exists("task/squash"))
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[DONE] removed local branch task/squash (proof=tree_equal)", stdout)
+        self.assertFalse(self.sandbox.branch_exists("task/squash"))
+
+    def test_no_upstream_ancestor_archived_task_is_removed(self) -> None:
+        self.sandbox.git("checkout", "-b", "task/landed")
+        (self.sandbox.repo / "feature.txt").write_text("landed\n", encoding="utf-8")
+        self.sandbox.git("add", "feature.txt")
+        self.sandbox.git("commit", "-m", "feature")
+        self.sandbox.git("checkout", "main")
+        self.sandbox.git("merge", "--ff-only", "task/landed")
+        self.sandbox.push_main()
+        self.sandbox.write_task("landed", branch="task/landed", archived=True)
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("proof=ancestor", stdout)
+        self.assertFalse(self.sandbox.branch_exists("task/landed"))
+
+    def test_rebase_then_merge_is_removed(self) -> None:
+        self.sandbox.git("checkout", "-b", "task/rebase")
+        (self.sandbox.repo / "feature.txt").write_text("from-feature\n", encoding="utf-8")
+        self.sandbox.git("add", "feature.txt")
+        self.sandbox.git("commit", "-m", "feature work")
+        self.sandbox.git("checkout", "main")
+        (self.sandbox.repo / "main.txt").write_text("from-main\n", encoding="utf-8")
+        self.sandbox.git("add", "main.txt")
+        self.sandbox.git("commit", "-m", "main moves")
+        self.sandbox.git("checkout", "task/rebase")
+        self.sandbox.git("rebase", "main")
+        self.sandbox.git("checkout", "main")
+        self.sandbox.git("merge", "--ff-only", "task/rebase")
+        self.sandbox.push_main()
+        self.sandbox.write_task("rebase", branch="task/rebase", archived=True)
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("proof=ancestor", stdout)
+        self.assertFalse(self.sandbox.branch_exists("task/rebase"))
+
+    def test_autosquash_then_merge_is_removed(self) -> None:
+        base = self.sandbox.head("main")
+        self.sandbox.git("checkout", "-b", "task/autosquash")
+        (self.sandbox.repo / "fix.txt").write_text("v1\n", encoding="utf-8")
+        self.sandbox.git("add", "fix.txt")
+        self.sandbox.git("commit", "-m", "first")
+        (self.sandbox.repo / "other.txt").write_text("keep\n", encoding="utf-8")
+        self.sandbox.git("add", "other.txt")
+        self.sandbox.git("commit", "-m", "second")
+        (self.sandbox.repo / "fix.txt").write_text("v2\n", encoding="utf-8")
+        self.sandbox.git("add", "fix.txt")
+        self.sandbox.git("commit", "-m", "fixup! first")
+        self.sandbox.git(
+            "rebase",
+            "-i",
+            "--autosquash",
+            base,
+            extra_env={"GIT_SEQUENCE_EDITOR": "true", "GIT_EDITOR": "true"},
+        )
+        self.sandbox.git("checkout", "main")
+        self.sandbox.git("merge", "--ff-only", "task/autosquash")
+        self.sandbox.push_main()
+        self.sandbox.write_task("autosquash", branch="task/autosquash", archived=True)
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("proof=ancestor", stdout)
+        self.assertFalse(self.sandbox.branch_exists("task/autosquash"))
+
+    def test_add_then_revert_on_target_is_kept(self) -> None:
+        base = self.sandbox.head("main")
+        (self.sandbox.repo / "patch.txt").write_text("same\n", encoding="utf-8")
+        self.sandbox.git("add", "patch.txt")
+        self.sandbox.git("commit", "-m", "add patch")
+        self.sandbox.git("revert", "--no-edit", "HEAD")
+        self.sandbox.push_main()
+        self.sandbox.git("checkout", "-b", "task/revert-case", base)
+        (self.sandbox.repo / "patch.txt").write_text("same\n", encoding="utf-8")
+        self.sandbox.git("add", "patch.txt")
+        self.sandbox.git("commit", "-m", "add the same patch")
+        self.sandbox.git("checkout", "main")
+        self.sandbox.write_task("revert-case", branch="task/revert-case", archived=True)
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] task/revert-case: tree_differs", stdout)
+        self.assertNotIn("proof=ancestor", stdout)
+        self.assertNotIn("proof=tree_equal", stdout)
+        self.assertTrue(self.sandbox.branch_exists("task/revert-case"))
+
+    def test_independent_same_patch_is_kept(self) -> None:
+        # Source adds the patch on its own commit. Main diverges, cherry-picks
+        # that patch, then reverts it. patch-id matches; the tree does not.
+        self.sandbox.git("checkout", "-b", "task/same-patch")
+        (self.sandbox.repo / "patch.txt").write_text("same\n", encoding="utf-8")
+        self.sandbox.git("add", "patch.txt")
+        self.sandbox.git("commit", "-m", "source patch")
+        self.sandbox.git("checkout", "main")
+        (self.sandbox.repo / "other.txt").write_text("diverge\n", encoding="utf-8")
+        self.sandbox.git("add", "other.txt")
+        self.sandbox.git("commit", "-m", "diverge main")
+        self.sandbox.git("cherry-pick", "task/same-patch")
+        self.sandbox.git("revert", "--no-edit", "HEAD")
+        self.sandbox.push_main()
+        self.sandbox.write_task("same-patch", branch="task/same-patch", archived=True)
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] task/same-patch: tree_differs", stdout)
+        self.assertNotIn("proof=ancestor", stdout)
+        self.assertNotIn("proof=tree_equal", stdout)
+        self.assertTrue(self.sandbox.branch_exists("task/same-patch"))
+
+    def test_empty_commits_are_tree_equal_and_removed(self) -> None:
+        # Expected: empty commits do not change the tree, so an archived task
+        # branch is tree_equal with origin/main and is removed. This is a
+        # content proof only; it is not a task-done proof by itself.
+        self.sandbox.git("checkout", "-b", "task/empty")
+        self.sandbox.git("commit", "--allow-empty", "-m", "empty one")
+        self.sandbox.git("commit", "--allow-empty", "-m", "empty two")
+        self.sandbox.git("checkout", "main")
+        self.sandbox.write_task("empty", branch="task/empty", archived=True)
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[DONE] removed local branch task/empty (proof=tree_equal)", stdout)
+        self.assertFalse(self.sandbox.branch_exists("task/empty"))
+
+    def test_unlanded_archived_branch_is_skipped(self) -> None:
+        self.sandbox.git("checkout", "-b", "task/open")
+        (self.sandbox.repo / "only-here.txt").write_text("nope\n", encoding="utf-8")
+        self.sandbox.git("add", "only-here.txt")
+        self.sandbox.git("commit", "-m", "not landed")
+        self.sandbox.git("checkout", "main")
+        self.sandbox.write_task("open", branch="task/open", archived=True)
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] task/open: tree_differs", stdout)
+        self.assertTrue(self.sandbox.branch_exists("task/open"))
+
+    def test_merge_tree_conflict_is_skipped(self) -> None:
+        self.sandbox.git("checkout", "-b", "task/conflict")
+        (self.sandbox.repo / "README.md").write_text("feature side\n", encoding="utf-8")
+        self.sandbox.git("add", "README.md")
+        self.sandbox.git("commit", "-m", "feature edit")
+        self.sandbox.git("checkout", "main")
+        (self.sandbox.repo / "README.md").write_text("main side\n", encoding="utf-8")
+        self.sandbox.git("add", "README.md")
+        self.sandbox.git("commit", "-m", "main edit")
+        self.sandbox.push_main()
+        self.sandbox.write_task("conflict", branch="task/conflict", archived=True)
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] task/conflict: conflict", stdout)
+        self.assertTrue(self.sandbox.branch_exists("task/conflict"))
+
+    def test_branch_equal_to_default_is_skipped(self) -> None:
+        self.sandbox.git("branch", "task/same", "main")
+        self.sandbox.git("push", "origin", "task/same")
+        self.sandbox.git("symbolic-ref", "HEAD", "refs/heads/task/same", cwd=self.sandbox.origin)
+        self.sandbox.git("remote", "set-head", "origin", "--auto")
+        self.sandbox.write_task("same", branch="task/same", archived=True)
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[INFO] default branch: origin/task/same", stdout)
+        self.assertIn("[SKIP] task/same: branch_is_default", stdout)
+        self.assertTrue(self.sandbox.branch_exists("task/same"))
+
+    def test_locked_worktree_is_skipped(self) -> None:
+        wt = self.sandbox.make_verified_task()
+        assert wt is not None
+        self.sandbox.write_task("test", branch="task/test", archived=True)
+        self.sandbox.git("worktree", "lock", str(wt))
+        code, dry, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] task/test: locked", dry)
+        self.assertNotIn("[PLAN] would remove", dry)
+        code, applied, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] task/test: locked", applied)
+        self.assertTrue(wt.is_dir())
+        self.assertTrue(self.sandbox.branch_exists("task/test"))
+
+    def test_git_locked_real_worktree_blocks_until_cleared(self) -> None:
+        wt = self.sandbox.make_verified_task()
+        assert wt is not None
+        self.sandbox.git("merge", "--ff-only", "task/test")
+        self.sandbox.push_main()
+        self.sandbox.write_task("test", branch="task/test", archived=True)
+        lock = Path(
+            self.sandbox.git(
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-path",
+                "index.lock",
+                cwd=wt,
+            ).stdout.strip()
+        )
+        lock.write_text("", encoding="utf-8")
+        code, dry, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] task/test: git_locked", dry)
+        self.assertNotIn("[PLAN] would remove", dry)
+        self.assertTrue(wt.is_dir())
+        self.assertTrue(self.sandbox.branch_exists("task/test"))
+        code, applied, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] task/test: git_locked", applied)
+        self.assertNotIn("[DONE] removed", applied)
+        self.assertTrue(wt.is_dir())
+        self.assertTrue(self.sandbox.branch_exists("task/test"))
+        lock.unlink()
+        code, cleaned, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[DONE] removed worktree", cleaned)
+        self.assertFalse(wt.exists())
+        self.assertFalse(self.sandbox.branch_exists("task/test"))
+
+    def test_task_active_keeps_clean_ancestor_from_main_checkout(self) -> None:
+        self.sandbox.git("branch", "task/demo", "main")
+        wt = self.sandbox.repo.parent / "repo-wt" / "demo"
+        wt.parent.mkdir(parents=True, exist_ok=True)
+        self.sandbox.git("worktree", "add", str(wt), "task/demo")
+        self.sandbox.write_task("demo", branch="task/demo", status="in_progress", archived=False)
+        code, dry, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] task/demo: task_active", dry)
+        self.assertNotIn("proof=", dry)
+        code, applied, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] task/demo: task_active", applied)
+        self.assertTrue(self.sandbox.branch_exists("task/demo"))
+        self.assertTrue(wt.is_dir())
+        self.assertNotIn("[DONE] removed", applied)
+
+    def test_guard_marker_keeps_archived_ancestor(self) -> None:
+        self.sandbox.git("branch", "task/demo", "main")
+        wt = self.sandbox.repo.parent / "repo-wt" / "demo"
+        wt.parent.mkdir(parents=True, exist_ok=True)
+        self.sandbox.git("worktree", "add", str(wt), "task/demo")
+        self.sandbox.write_task("demo", branch="task/demo", archived=True)
+        self.sandbox.write_guard("demo", "task/demo", phase="archived")
+        for args in (("--no-fetch",), ("--apply", "--no-fetch")):
+            code, stdout, _ = self.sandbox.run_gc(*args)
+            self.assertEqual(code, 0)
+            self.assertIn("[SKIP] task/demo: guard_active", stdout)
+            self.assertTrue(self.sandbox.branch_exists("task/demo"))
+            self.assertTrue(wt.is_dir())
+
+    def test_task_unknown_without_record_or_merged_pr(self) -> None:
+        self.sandbox.git("branch", "task/orphan", "main")
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] task/orphan: task_unknown", stdout)
+        self.assertTrue(self.sandbox.branch_exists("task/orphan"))
+
+    def test_completed_status_outside_archive_stays_task_active(self) -> None:
+        self.sandbox.git("branch", "task/stuck", "main")
+        self.sandbox.write_task("stuck", branch="task/stuck", status="completed", archived=False)
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] task/stuck: task_active", stdout)
+        self.assertTrue(self.sandbox.branch_exists("task/stuck"))
+
+    def test_force_gone_does_not_bypass_missing_task(self) -> None:
+        wt = self.sandbox.make_verified_task()
+        assert wt is not None
+        self.sandbox.set_pr("task/test", "OPEN", self.sandbox.head("task/test"))
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch", "--force-gone")
+        self.assertEqual(code, 0)
+        self.assertIn("[SKIP] task/test: task_unknown", stdout)
+        self.assertTrue(self.sandbox.branch_exists("task/test"))
+        self.assertTrue(wt.is_dir())
+
+    def test_force_gone_removes_archived_unlanded_branch(self) -> None:
+        wt = self.sandbox.make_verified_task()
+        assert wt is not None
+        self.sandbox.set_pr("task/test", "OPEN", self.sandbox.head("task/test"))
+        self.sandbox.write_task("test", branch="task/test", archived=True)
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch", "--force-gone")
+        self.assertEqual(code, 0)
+        self.assertIn("proof=forced", stdout)
+        self.assertFalse(self.sandbox.branch_exists("task/test"))
+        self.assertFalse(wt.exists())
+
+    def test_card_prefix_is_still_report_only(self) -> None:
+        self.sandbox.git("branch", "card/keep", "main")
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch", "--prefix", "card/")
+        self.assertEqual(code, 0)
+        self.assertIn("[INFO managed_by=herdr-dispatch run cleanup] card/keep -", stdout)
+        self.assertTrue(self.sandbox.branch_exists("card/keep"))
+        self.assertNotIn("[DONE] removed", stdout)
+        self.assertNotIn("[PLAN] would remove", stdout)
