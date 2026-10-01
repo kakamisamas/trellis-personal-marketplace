@@ -1,6 +1,6 @@
 # 工作流 v2 执行计划：开始即到底、脚本清理、派工执行细节
 
-日期：2026-10-01。状态：修订版 r6（r2 按 Codex 第 1 轮修改；r3 按第 2 轮；r4 按第 3 轮；r5 按第 4 轮；r6 按 B 卡复审（第 5 轮，`workflow-v2-plan-bcards-review-1001`）的**取舍**修改，见 §8「第 5 轮」与 §9 延后清单）。r6 起不再开计划审核轮，契约由各卡的 Codex code review 在代码上验证。T1 已合入（`3f382d6`，code review 通过）；按 §6 流水线执行中。
+日期：2026-10-01。状态：修订版 r7（r2–r5 按 Codex 第 1–4 轮；r6 按 B 卡复审的取舍，见 §8「第 5 轮」；**r7 按用户 2026-10-01 的设计决定：执行者与审查者默认无头，只有主控和 `claude` harness 的 Worker 进 Herdr pane**，见 §8「r7 设计变更」）。r6 起不再开计划审核轮，契约由各卡的 Codex code review 在代码上验证。T1、T2 已合入；B0 已验收（`845d35c`，code review r2 通过）；T3 在第 3 轮；按 §6 流水线执行中。
 
 本计划覆盖两大块：(A) Trellis 工作流改造及配套脚本/hooks；(B) 从 firstmate 吸收的派工执行细节。改动落在三处：`herdr-dispatch` 技能（派工脚本）、`trellis-personal-marketplace`（Trellis workflow 模板与 `trellis_gc.py`）、`sanctions-radar`（应用）。
 
@@ -23,7 +23,7 @@
 
 | 交付物 | 位置 | 内容 |
 | --- | --- | --- |
-| 派工脚本 | `~/.skills-manager/skills/herdr-dispatch/`（git 仓 `~/.skills-manager/skills`，分支 `main`） | 落地证明与全局状态、回合守卫、轮次绑定与状态标签、单卡单 worktree、卡片渲染、清理证明、无头审核 |
+| 派工脚本 | `~/.skills-manager/skills/herdr-dispatch/`（git 仓 `~/.skills-manager/skills`，分支 `main`） | 落地证明与全局状态、无头执行/审核（主路径）、回合守卫（主控侧 + 无头/pane Worker 侧）、pane 绑定（仅 Claude Worker）、单卡单 worktree、卡片渲染、清理证明 |
 | Trellis 模板 | `~/Documents/Project/trellis-personal-marketplace/`（`origin/main` @ `d78956f`，v1.5.1；herdr 卡片路由已在 PR #12/#13 上游） | 上游合并 sanctions-radar 剩余定制、「开始即到底」文案、`trellis_gc.py` 扩展、README/分发指针、发布 v1.6.0 |
 | 应用 | `~/Documents/Project/sanctions-radar/` + 本机用户级 hooks | 安装新 workflow/gc/setup skill、config.yaml 生命周期 hook、用户级 Stop/UserPromptSubmit hook 注册与真实探针、真实冒烟 |
 
@@ -31,7 +31,7 @@
 
 - 不改 Trellis 自己管理的 hook 文件（`.claude/hooks/*.py`、项目级 `.claude/settings.json`、`.codex/hooks.json`、`.grok/hooks/impeccable.json`，均在 `.trellis/.template-hashes.json` 哈希跟踪）。守卫只注册在用户级。
 - 不换成 firstmate；不搬它的 bash（约 31k 行，焊死在其 state 布局）。只搬 §2 列出的 5 个想法。
-- 不把无头路径押在 `claude -p`（额度政策未定）。Claude 当 Worker 继续进 Herdr。
+- 不把无头路径押在 `claude -p`（额度政策未定）。harness 为 `claude` 的 Worker（执行者或审查者）继续进 Herdr pane；其他 harness 一律无头（r7）。
 - 不处理 Ankicenter / opencode / wechat 三个项目的 workflow 升级（另起任务）。
 - 不在本计划里做「同一任务多次合并」设计：合并后的补充是新的轻量任务。
 - 不动 sanctions-radar `.trellis/config.yaml` 的 `registry.spec`（那是 spec 模板 `solo-baseline` 的来源，与 workflow 无关）。
@@ -39,12 +39,12 @@
 ### 已按默认值决定的事（用户可推翻）
 
 1. 归档兜底阈值 7 天；兜底归档提交直接推到 `origin/<default>`（sanctions-radar 是免费版私有仓，GitHub 返回 403 表示没有分支保护）。推送前置条件见 T3 第 4 条。
-2. 守卫脚本放在 `herdr-dispatch/scripts/turn_guard.py`，一份脚本，三处用户级注册。作用域绑定 `HERDR_PANE_ID`（Herdr 在每个 pane 的 shell 里导出 `HERDR_PANE_ID/HERDR_TAB_ID/HERDR_WORKSPACE_ID`，harness 及其 hook 子进程继承）；不在 Herdr 里运行时静默退出。
+2. 守卫脚本放在 `herdr-dispatch/scripts/turn_guard.py`，一份脚本，三处用户级注册。作用域绑定：主控与 pane Worker 靠 `HERDR_PANE_ID`（Herdr 在每个 pane 的 shell 里导出 `HERDR_PANE_ID/HERDR_TAB_ID/HERDR_WORKSPACE_ID`，harness 及其 hook 子进程继承）；无头 Worker 靠 `HERDR_DISPATCH_ROUND`（B5 的 runner 设置，并**显式剔除**从主控 pane 继承下来的三个 `HERDR_*` 变量——watcher 是主控 pane shell 起的 detached 进程，环境会一路传给无头子进程）。两者都没有时静默退出。
 3. 所有 worktree 统一到 `<repo>-wt/`：任务 worktree `<repo>-wt/<MM-DD-slug>`，多卡运行 `<repo>-wt/<run_id>/<run_id>-<card>` 与 `<run_id>-integration`。
-4. 无头审核用 `codex exec` / `grok -p` / `cursor-agent -p`，只用于 reviewer 角色；execute 卡仍进 Herdr。
+4. **会话模式**（r7）：`assignee.session ∈ {headless, pane}`；未显式指定时按 harness 决定：`claude` → `pane`，`codex / grok / cursor` → `headless`，与角色无关。无头 = 进程由派工脚本自己起（`codex exec` / `grok -p` / `cursor-agent -p`），不建 Herdr 标签页，不写 pane 绑定，不做窗口清理；pane = 现行路径。旧 task/plan 文件没有该字段 → 按上面默认值（Grok 执行卡从此默认无头，这是有意的行为变更）。`claude` + `headless` → `headless_unsupported`。
 5. 派工脚本改动在 `~/.skills-manager/skills` 的 git worktree 里做，验收后由主控快进合并到 `main`，合并前必须通过 S0 定义的「无派工在飞」检查。
 6. 转向收件箱（firstmate inbox+doorbell）排最后，可裁剪。
-7. Worker 的轮次身份不靠环境变量注入（`herdr agent start` 没有环境选项，agent 参数不等于子进程环境），改为 watcher 写「pane → 当前轮次」绑定文件；只有无头路径（进程由我们自己起）才用环境变量。
+7. Worker 的轮次身份：无头路径用子进程环境 `HERDR_DISPATCH_ROUND=<round_dir>`（进程由我们自己起，环境可控）；pane 路径（只剩 Claude Worker）不靠环境变量注入（`herdr agent start` 没有环境选项，agent 参数不等于子进程环境），改为 watcher 写「pane → 当前轮次」绑定文件（B2）。pane 路径不再做 session 补全与活动协议（r7 延后，§9）：绑定身份只比 `agent_get` 的 `pane_id / terminal_id / agent / name` 四项。
 8. 「合并前停」记在守卫 marker 上（`turn_guard.py pause-before-merge`），不用 `task.py set-meta`（归档后 task.json 路径变化、值是字符串、active pointer 被清，都不适合承载）。
 9. 守卫的「等待豁免」和「一次性 stop」都是 pane 级：一个主控 pane 在等自己派出的、监督与唤醒路径可证实有效的派工时，结束回合是正常的，与它有几个 marker 无关；`stop --reason` 是用户可见的显式停下，也按 pane 一次性消费。marker 级（每个任务）的判断只决定「是否还有未完成任务」。
 10. 任务 marker 的解除条件是「任务生命周期完成 + 成果落地」两者同时成立，不是单独的 Git 内容证明（新建分支的 tip 本来就是 main 的祖先）。
@@ -72,17 +72,18 @@
 | 停顿根因 | 模板 `origin/main` `:257` `:273`（in_progress / inline 状态块）「completion report -> wait for 结束工作/收尾」由 `inject-workflow-state.py` 每回合注入；`:862-863` 3.4「present … then stop」；唯一例外是已保存的 full-run 授权（`:258` `:866-868`） |
 | 失败数据 | 128 次派工、213 轮、49 次 reject（截至 2026-10-01 派本计划审核前）；最大失败类 `missing_report` 63 次（按事件 `reason` 字段统计；Worker 结束回合没交卷）；启动类失败合计 <15 次 |
 | Worktree 层数 | 单卡运行 `trk-progress-0927` 也建了任务 + 集成 + 卡片三个 worktree；`sr-us-enacted-20260922` 则把任务 worktree 当集成目录，布局不一致 |
-| Hook 能力 | Claude/Codex/Grok 都有 Stop hook，exit 2 阻止结束（firstmate `docs/turnend-guard.md`）；三者都有 `UserPromptSubmit`（本机 `~/.claude/settings.json`、`~/.codex/hooks.json`、`~/.grok/hooks/moshi-hooks.json` 已各注册一条）；Codex 用 `stop_hook_active`，Grok 用 `stopHookActive`；Grok 会加载 Claude 的 settings.json hooks，需 `[ -z "${GROK_AGENT:-}${GROK_HOOK_EVENT:-}" ] \|\| exit 0` 守卫；Codex 用户级 hook 需要 `~/.codex/config.toml` `[hooks.state."…"] trusted_hash` 信任条目；Claude 支持 `--settings <file>` 附加设置；**未核实**：三 harness 是否保证同一 pane 的 prompt/Stop hook 跨事件串行、Stop hook 读到的共享状态是否属于本回合——firstmate 文档只证明 Stop hook 能阻止结束；本机 `~/.claude/settings.json:164`、`~/.grok/hooks/moshi-hooks.json:62` 有 `async: true` 的其他 hook，说明 harness 支持异步 hook，不能假定串行。A1 探针专门测这一点（`serial_events`），B2 的消费规则不依赖它 |
+| Hook 能力 | Claude/Codex/Grok 都有 Stop hook，exit 2 阻止结束（firstmate `docs/turnend-guard.md`）；三者都有 `UserPromptSubmit`（本机 `~/.claude/settings.json`、`~/.codex/hooks.json`、`~/.grok/hooks/moshi-hooks.json` 已各注册一条）；Codex 用 `stop_hook_active`，Grok 用 `stopHookActive`；Grok 会加载 Claude 的 settings.json hooks，需 `[ -z "${GROK_AGENT:-}${GROK_HOOK_EVENT:-}" ] \|\| exit 0` 守卫；Codex 用户级 hook 需要 `~/.codex/config.toml` `[hooks.state."…"] trusted_hash` 信任条目；Claude 支持 `--settings <file>` 附加设置；**未核实**：三 harness 是否保证同一 pane 的 prompt/Stop hook 跨事件串行、Stop hook 读到的共享状态是否属于本回合——firstmate 文档只证明 Stop hook 能阻止结束；本机 `~/.claude/settings.json:164`、`~/.grok/hooks/moshi-hooks.json:62` 有 `async: true` 的其他 hook，说明 harness 支持异步 hook，不能假定串行。r7 后守卫只读发布制品，不依赖事件顺序，串行探针随活动协议一并延后（§9）；**无头下 Stop hook 是否触发未核实**，由 A1 记录、B5 纠正兜底 |
 | Trellis 任务元数据 | `.trellis/tasks/<name>/task.json`：`status`、`branch`、`base_branch`、`worktree_path`、`pr_url`、`completedAt`、`meta`、`children`、`parent`；`.trellis/config.yaml` 支持 `hooks.after_start/after_archive`，注入 `TASK_JSON_PATH` |
 | firstmate 参考 | `~/.cache/firstmate-ref`（HEAD `65c75b0`）；关键文件 `bin/fm-turnend-guard.sh`、`bin/fm-turnend-guard-grok.sh`、`.claude/settings.json`、`.codex/hooks.json`、`.grok/hooks/fm-primary-turnend-guard.json`、`bin/fm-task-inbox-lib.sh`、`bin/fm-teardown.sh:1461-1602`（`content_in_default`：`merge-tree --write-tree origin/<default> HEAD` 无冲突且结果树 == `origin/<default>^{tree}`；其 patch-id 路径限定在 PR head 与共同基线区间内）、`bin/fm-busy-lib.sh`、`docs/turnend-guard.md` |
+| 无头 CLI 事实（2026-10-01 `--help` 核对，r7） | `codex exec [OPTIONS] [PROMPT]`：无 PROMPT 或 `-` 时从 stdin 读指令；`codex exec resume [SESSION_ID \| --last] [PROMPT]`（`-` 读 stdin）；`--json`（事件 JSONL）、`-o/--output-last-message <FILE>`、`-C <DIR>`、`--dangerously-bypass-approvals-and-sandbox`、`-m`。`grok -p/--single <PROMPT>` 或 `--prompt-file <PATH>`（单回合，打印后退出）；`--cwd`；`--always-approve`；`--permission-mode {default,acceptEdits,auto,dontAsk,bypassPermissions,plan}`；`--no-subagents`；`--output-format plain\|json\|streaming-json\|streaming-messages-json`；`-s/--session-id <UUID>` **只对新会话**（我们可预先指定 id）；`-r/--resume <id>` 续会话，`--fork-session` 配 `--session-id` 给 fork 命名。`cursor-agent -p/--print --output-format text\|json\|…`、`--resume [chatId]`、`--yolo`（= `--force`）、`--trust`、`--workspace <path>`。`claude -p --resume <id> --dangerously-skip-permissions --output-format stream-json`（本计划不用）。**未实测**：各 CLI 的 json 输出里会话 id 的字段名、`grok --resume` 与 `--prompt-file` 同用、Stop hook 在 `codex exec`/`grok -p` 里是否触发——B5 以实测为准并把结果写进 `references/adapters.md`。Herdr 环境变量继承：`submit` 在主控 pane 里运行 → `start_watcher` 的 detached 进程继承 `HERDR_PANE_ID` 等 → 无头子进程若不剔除会被 `turn_guard.py` 当成主控 pane |
 
 ## 2. 从 firstmate 吸收什么（按本机失败数据排序）
 
 | # | 想法 | 对应本机问题 | 落点 |
 | --- | --- | --- | --- |
 | 1 | 回合结束守卫（Stop hook exit 2 + 预算 + `stop_hook_active` 处理） | 主控 3.4 停顿；Worker `missing_report` 63 次 | B1 |
-| 2 | 语义 busy 契约：只有精确 `busy` 才豁免停滞判定；Herdr 原生 `idle` 不可信；Codex 一律 `unknown` | `assignee_stalled` 误判、`missing_report` 发现慢 | B1 附带 |
-| 3 | 启动身份显式传递（firstmate 用启动文件 + 环境变量；本机改为 pane 绑定文件） | Worker 找不到自己的轮次目录；hook 无法定位 | B2 |
+| 2 | 语义 busy 契约：只有精确 `busy` 才豁免停滞判定；Herdr 原生 `idle` 不可信 | `assignee_stalled` 误判、`missing_report` 发现慢 | 无头路径：进程状态替代（活着 = working，退出 = 结束，没有 idle 这一层）（B5）；pane 路径的活动协议延后（§9） |
+| 3 | 启动身份显式传递（firstmate 用启动文件 + 环境变量） | Worker 找不到自己的轮次目录；hook 无法定位 | 无头：B5 环境变量；pane：B2 绑定文件 |
 | 4 | teardown 的 landed 证明（祖先 / `merge-tree` 树相等；patch-id 只做线索不做证明） | `cleanup_run` 只认 `live_head == accepted_head`，4 个残留 | B0、B6、T3 |
 | 5 | 收件箱 + 常量门铃 + `mv handled/` ack + 90s×3 再响 | 中途转向靠直接敲 prompt，无投递证据 | B7（可裁剪） |
 
@@ -182,7 +183,7 @@ cwd 模板仓，文件 `scripts/trellis_gc.py`、`tests/test_gc.py`（真实临�
 
 cwd 模板仓。
 
-1. README「Worktree model」改写为统一 `<repo>-wt/` 布局与单卡单 worktree 规则；README:13 的「after the user says 结束工作/收尾」改为「after the user says 开始, the agent runs through 3.4–3.5」；新增「Turn guard」小节（用户级注册命令 `python3 ~/.skills-manager/skills/herdr-dispatch/scripts/turn_guard.py install`、`doctor`、config.yaml hook 片段）；GC 小节写明生命周期证据 + 内容证明、`card/run` 归派工脚本、兜底归档（completed / PR MERGED）、同步前置与 pending 记录。
+1. README「Worktree model」改写为统一 `<repo>-wt/` 布局与单卡单 worktree 规则；README:13 的「after the user says 结束工作/收尾」改为「after the user says 开始, the agent runs through 3.4–3.5」；新增「Turn guard」小节（用户级注册命令 `python3 ~/.skills-manager/skills/herdr-dispatch/scripts/turn_guard.py install`、`doctor`、config.yaml hook 片段）；新增「Herdr 与无头」一段：执行者/审查者默认无头（Codex/Grok/Cursor），只有主控与 Claude Worker 在 Herdr pane，`assignee.session` 可显式覆盖；GC 小节写明生命周期证据 + 内容证明、`card/run` 归派工脚本、兜底归档（completed / PR MERGED）、同步前置与 pending 记录。
 2. `v1.5.1` → `v1.6.0`，文件清单（不是计数）：`README.md`、`scripts/setup.sh`、`workflows/solo-github-flow/workflow.md`、`assets/skills/trellis-setup/SKILL.md`、`tests/test_marketplace.py`、`tests/test_herdr_card_workflow.py`、`tests/test_spec_registry.py`。验收命令：`rg -n "v1\.5\.1" --glob '!docs/**' --glob '!.git/**' .` 为空。不删除 `test_release_references_stay_aligned` 等一致性断言。
 3. 新增测试：workflow.md 首行注释里的版本 == `setup.sh` 的 `RELEASE_REF` == `assets/skills/trellis-setup/SKILL.md` 的 bootstrap URL 版本。
 4. 新增 `docs/releases/v1.6.0.md`（格式照 `docs/releases/v1.5.1.md`）。发布动作（打 tag、push）由主控在 A2 前做，不在卡内。
@@ -231,31 +232,26 @@ cwd 一律 `~/.skills-manager/skills-wt/workflow-v2/herdr-dispatch`。每张卡�
 
 验收：`is_landed` 测试覆盖 squash、rebase 后合并、autosquash、真实祖先、合并后 main 又有新提交（仍 landed）、冲突 → False、**add→revert 反例 → False**、只含空提交的分支（tree 相等 → True，测试写明这是预期）、部分 cherry-pick → False；`dispatch_settled`/`status --all` 夹具（假 Herdr + 假 transcript/`activity_scan` 供 `collect_turn_evidence` 用）逐行覆盖真值表：running；accepted + watcher 活；**accepted + watcher 死 + 同一执行者 working，holder 分别为 false / true / missing → 三种都 exit 1**；holder true + 查询失败 → exit 1；**accepted + 执行者 idle + 原生 `turn_active` 或 `waiting_on_tool`，holder true/missing → exit 1（`executor_turn_active`）**；accepted + 执行者 working 但同一会话已被更晚的非终态派单 B 复用 → 本派单 `attributed`、B 在飞；执行者被新会话接管（terminal/session 变）→ `replaced`；**holder false + replaced working、holder false + attributed、needs_attention + gone、cancelled + holder false + gone → 只读 exit 1 `holder_unsettled`，`--settle` 后再只读 → exit 0**；holder 孤儿记录、state 损坏、run 占用 → exit 1；全部可靠 settled → exit 0；**默认 `status --all` 运行前后 state home 所有文件哈希不变**；现有 `settle_holder_if_idle` 测试仍过；`dispatch_wait_status` 夹具：正常等待（含有 `name` 的 controller，`agent_get` 返回同 name）→ True；**已 settled 的历史派单 + 控制端 session 已变 → `(False, "settled")`**；accepted + 执行者 working（终态在飞）→ False 且 reason 含 `status`；`agent_get` 返回不同 terminal/session → False（人工处置）；`result_ready`、watcher 死、`needs_attention`、本轮未 claim 的 `runtime_error(identity_changed)` → False 且 reason 含对应下一步；**本轮 `wakeup_retry_exhausted` 且其 `group_event_id` 未 claim → False（`collect --claim`）；同一事件但组事件已被 `collect --claim` 领取且监督健康 → True**；`primary_wakeup.status == skipped`、别的 pane 控制 → False；旧轮已 claim/未 claim 的错误不影响新轮；无唤醒记录的初始监督 → True；`finalize_cancel`：watcher 死 + 执行者 gone + `cancel` → 立即 cancelled、holder settled，`result.cancelled.json` 与 `cancelled` 事件与现有 watcher 路径逐字段相同，`collect --claim` 可领取；**活 watcher 或同一执行者 working 时 `cancel`/`resume` → `cancelling`，holder 不释放、phase 不变；idle 但原生 `turn_active` → 同样不结算**；`cancel.json` 存在 + `watcher.stop` 存在 → `watch --detach` 先落地 cancel 再退出；`resume` 对未落地 cancel → 落地并返回 cancelled，不能落地则启动 watcher；**两个入口并发（线程夹具）→ 只有一个 `cancelled` 事件、一次窗口释放**；`cleanup` 对未落地 cancel → `cancel_pending`。r6 追加：占位 `pid` 存活 → 其他入口 `finalizing`，`pid` 已死 → 接手；在每个写入边界（事件后、phase 后、holder 后、窗口后）模拟崩溃再重调 → 补齐且只一个事件、一次释放；accepted + 同一执行者 working + cancel → `resume` 起的 watcher 不早退，执行者 idle 后落地；假 Codex agent（无 transcript）idle ≥ `settle_confirm_s` + cancel → cancelled（`idle_no_evidence`）；Grok transcript 缺失/不可读/截断且无活动布尔值 + accepted + watcher 死 + holder true/missing → `status --all` exit 1 `unknown`（不是 settled），cancel 不落地；`dispatch_wait_status`：needs_attention 未 claim → reason 含 `collect --claim`，已 claim → 含 `resume --retry-start`；`last_error` 非空但本轮事件都已 claim 且监督健康 → True，再次 `collect` 无事件不形成循环。
 
-#### B2 轮次绑定、活动协议、状态标签、卡面头部（B1 的前置：冻结共享 schema 与生产端写入）
+#### B2 pane 绑定与卡面头部（仅 pane 路径 = Claude Worker；B1 的前置：冻结绑定文件 schema 与生产端写入）
 
-文件：`scripts/watcher.py`（`ensure_assignee`、`align_round_request`、`send_prompt`/`_start_agent`、`observe_once` 的 fill_session、停滞判定）、`scripts/runtime.py`（`fill_assignee_session` 扩展、`accept`/`cancel` settled/`cleanup` 的绑定清理）、`scripts/lifecycle.py`、`scripts/herdr_client.py`、`scripts/templates.py`（`render_request` 头部）、新 `scripts/paneguard.py`（pane 文件与轮次活动文件的读写、锁、CAS——B1 的 hook 只 import 它，不自己解析）。
+r7 收窄：原卡的活动协议（`activity.json`/`turn.json`/`busy-state.json`）、状态标签、`fill_session` 三处同步全部延后（§9）。无头路径不经本卡。
 
-1. **pane 绑定**（`~/.local/state/herdr-dispatch/turn-guard/panes/<pane_id>.json` 的 `worker` 字段，同目录 `<pane_id>.lock`）：`{dispatch_id, round, round_dir, fingerprint, assignee: {harness, agent, name, agent_session, terminal_id, pane_id}, generation, updated_at}`（`agent` = Herdr kind，`name` = `agent start` 的 NAME，都来自 `state.assignee`）。
-   - 写入时机：每次向执行者发送本轮 request **之前**（首次启动后、复用会话 `align_round_request` 后、`resume --retry-start` 后），在 pane 锁下：先核对派单当前 round == 本轮且 `state.assignee` 身份与即将发送的目标一致（`classify_identity ∈ {match, fill_session}`），再写；`generation` 单调递增（从旧记录 +1）。`agent_session` 此时可能为 null（首个 prompt 后才有），这是合法的「待补全」绑定。
-   - **session 补全的唯一入口** `paneguard.fill_session(store, dispatch_id, round, generation, session_value, observed) -> {filled | noop | fill_conflict | rejected: <why>}`（watcher 与 B1 hook 共用；B1 不得自己写 session）：`observed = client.agent_get(pane_id)`（不是 `pane_get`，后者无 `name`）；资格 = `observed` 的 `pane_id / terminal_id / agent / name` 与绑定 `assignee` **四项全等**（不经 `classify_identity`——它在期望 session 为 null 时先于 name/agent 比较就返回 `fill_session`），且 `observed.agent_session.value == session_value`（hook 传载荷 session、watcher 传观察值，两者都必须与 Herdr 当前报告一致）；任一不等 → `rejected`，不写。锁顺序固定：`store.lock(dispatch_id)` → pane 锁 → `<round_dir>/.activity.lock`；锁内核对 `(dispatch_id, round, generation)` 未变，然后**三处一起写**：`state.assignee.agent_session`、pane `worker.assignee.agent_session`、`activity.json.assignee_session`——每处只写 null；任一处已非 null 且 ≠ `session_value` → `fill_conflict`：三处都不写、记日志，调用方按「绑定无效 / identity_changed」处理；三处都已等于 `session_value` → `noop`。`runtime.fill_assignee_session` 改为调用它（`watcher.observe_once` 的 fill 分支不变）。
+文件：`scripts/watcher.py`（`ensure_assignee`、`align_round_request`、`send_prompt` 发送前写绑定）、`scripts/runtime.py`（`accept`/取消 settled/`cleanup` 的绑定清理）、`scripts/templates.py`（`render_request` 头部）、新 `scripts/paneguard.py`（pane 文件读写与锁——B1 的 hook 只 import 它，不自己解析）。
+
+1. **pane 绑定**（`~/.local/state/herdr-dispatch/turn-guard/panes/<pane_id>.json` 的 `worker` 字段，同目录 `<pane_id>.lock`）：`{dispatch_id, round, round_dir, fingerprint, assignee: {harness, agent, name, terminal_id, pane_id}, generation, updated_at}`（`agent` = Herdr kind，`name` = `agent start` 的 NAME，都来自 `state.assignee`；**不记 `agent_session`**）。
+   - 写入时机：`assignee.session == pane` 时，每次向执行者发送本轮 request **之前**（首次启动后、复用会话 `align_round_request` 后、`resume --retry-start` 后），在 pane 锁下：先核对派单当前 round == 本轮且 `state.assignee` 身份与即将发送的目标一致（`classify_identity ∈ {match, fill_session}`），再写；`generation` 单调递增（从旧记录 +1）。
    - 清理时机：`accept`、取消 settled、`cleanup` 时，在 pane 锁下只有当现有 `worker` 的 `(dispatch_id, round, generation)` 与本派单登记的完全相同才清；否则不动。旧 watcher 迟到写入：写前核对 round 仍是当前 round，否则放弃。无头路径（B5）不写 pane 文件，用子进程环境 `HERDR_DISPATCH_ROUND`。
-2. **活动协议**（Worker hook 与 watcher 共享；文件都在 `<round_dir>/`，锁 `.activity.lock`）：
-   - `activity.json`（watcher 每次发送 prompt 前在锁下写）：`{generation, prompt_sent_at, assignee_session}`，generation 与 pane 绑定同值。
-   - `turn.json`（**prompt 事件的 hook** 在回合开始时写）：`{generation: <此刻 activity.json 的 generation>, session_id: <载荷>, turn_seq: <上一值 + 1>, started_at}`。这是「回合来源 token」：它在活动开始时捕获，不在结束时读取。
-   - `busy-state.json`：prompt hook 写 `{state: busy, token: <turn.json 全部字段>, ts}`；Stop hook 写 `{state: idle, token: <hook 进程开始处理时读取一次的 turn.json，不在写入前重读>, ts}`。写入在锁下做 CAS：token.turn_seq 必须 ≥ 文件现值的 turn_seq，否则丢弃。**这是对共享状态的读取，不是载荷携带的回合标识**：若 harness 不保证同一 pane 的 prompt/Stop 事件串行（§1「Hook 能力」：未核实），迟到的旧 Stop 可能读到新回合的 token 并通过 CAS。因此 idle 只是证据，不是判定。
-   - watcher 消费规则：`busy` 且 5 分钟内 → 不判 stalled。`idle` **只是线索，不是 `turn_ended` 来源**（原生 `turn_active` / `waiting_on_tool` 永远先否决，`lifecycle.py:419/437`；hook 写的 idle 不得改写 `TurnEvidence` 的任何字段——若把它注入 `turn_ended`，`live_turn = turn_active and not turn_ended` 会让原生「回合仍活」失效）：当 `idle.token.generation == activity.generation`、`idle.token.session_id` 非空且 == `activity.assignee_session`、`idle.token.turn_seq == turn.json.turn_seq` 时，记 `activity_hint{kind: idle, matched: true}`，并把本派单的确认窗口从 `stall_timeout_s` 缩到 `settle_confirm_s`——缩窗只在 `classify_assignee` 走到「原生证据不否决、`agent_status` ∈ settled」的分支后生效，只影响等多久，不影响判什么；`agent_status` 为 `working/blocked/unknown`、原生 `turn_active`、`waiting_on_tool`、读前延迟读到新 token 的迟到 idle，都按原路径处理。token 任一项不一致、无 `turn.json`、无 session id（如 Codex）→ 记 `activity_hint{matched: false}`，不缩窗。`probes.json.serial_events` 只记录（A1 探针信息），不参与判定。
-3. 状态标签：`herdr pane report-metadata <pane> --source herdr-dispatch --state-label DISPATCH=<text> --ttl-ms <n>` 在这些时刻更新：派出后 `🛠 <card> r<n>`；`publish` 后 `📬 已交卷`；主控 `accept`/`reject` 后 `✅ 已验收` / `🔁 返工 r<n+1>`；watcher 判 stalled 时 `⏳ 无响应`。失败只记日志，不影响派工。
-4. `request.md` 头部加一行固定说明：`本轮目录：<round dir>。结束回合前必须交卷（publish）。`
+2. `request.md` 头部加一行固定说明：`本轮目录：<round dir>。结束回合前必须交卷（publish）。`（两种路径都加。）
 
-验收：`tests/fake_herdr.py` 流程测试：首轮启动后 pane 文件 `worker.round == 1` 且写入早于 `agent_prompt` 调用；启动时 `agent_session=None` → 绑定写入 null → 首个 prompt 后 `observe_once` 的 fill 把 session 同步到 pane 文件与 `activity.json`（三处一致）；fill 迟到而派单已进入 r2 或 pane 已被新派单重绑 → 不写；同会话复用进入第 2 轮后 `worker.round == 2`、`generation` 递增、`fingerprint` 等于 r2 的 `request_fingerprint.txt`；**竞争负例**：旧派单 accept 清理晚于新派单重绑 → 新绑定保留；旧 watcher 迟到写 r1 → 被拒；同 pane 换了新 harness 会话（terminal_id 变）→ 旧绑定判无效；**同 terminal 换了 harness/name（`agent_get.agent` 或 `name` 不同）→ `fill_session` 返回 `rejected`，不写；`observed.agent_session.value` ≠ 传入 session → `rejected`；hook 先补全后 watcher `observe_once` → `noop`，三处一致；hook 与 watcher 并发补全（线程夹具）→ 三处一致且只写一次；某处已有不同 session → `fill_conflict`，三处都不写**；`mark-start` 与 worker 写入并发 → 两者字段都在；活动协议用可控时序的夹具：(i) 已读 token 后暂停再写的四类竞争（不同 session、上一 generation、新 prompt 后旧 turn_seq、较新 busy 后旧 idle）→ 不作为 `turn_ended`；(ii) **读前延迟**：旧 Stop 在新 prompt 写 `turn.json` 之后才读取（读到新 token 并通过 CAS）→ 此时 `agent_status=working` 或原生 `turn_active` → 不触发；(iii) token 一致 + `agent_status=idle` + 原生 `waiting_on_tool` 或 `turn_active`（transcript 显示回合仍活）→ 不触发，过 `settle_confirm_s` 仍不 `missing_report`；(iv) token 一致 + idle + 无原生活动 + 未交卷 → `settle_confirm_s` 后 `missing_report`（不再等 `stall_timeout_s`）；(v) `probes.json.serial_events` 为 true/false/缺失都不改变 (iii)(iv) 的结果；(vi) 无 session id 的 idle 与无 `turn.json` → 只记线索，窗口不变；标签调用在四个时刻各出现一次；缺 `report-metadata` 能力时优雅跳过；`render_request` 输出含头部说明。
+验收：`tests/fake_herdr.py` 流程测试：`session=pane` 首轮启动后 pane 文件 `worker.round == 1` 且写入早于 `agent_prompt` 调用；同会话复用进入第 2 轮后 `worker.round == 2`、`generation` 递增、`fingerprint` 等于 r2 的 `request_fingerprint.txt`；**竞争负例**：旧派单 accept 清理晚于新派单重绑 → 新绑定保留；旧 watcher 迟到写 r1 → 被拒；`accept`/cancel settled/`cleanup` 各清一次且只清自己的；`mark-start` 与 worker 写入并发 → 两者字段都在；`session=headless` 的派单不产生 pane 文件；`render_request` 输出含头部说明。
 
 #### B1 回合守卫 `scripts/turn_guard.py`
 
-新文件 + `tests/test_turn_guard.py`；另改 `scripts/runtime.py`（`submit` 读 `probes.json` 打 `guard_unsupported` 警告）。依赖 B0（`is_landed`、`dispatch_wait_status`）与 B2（`paneguard.py` 的绑定/活动文件 schema 与锁）。状态目录 `~/.local/state/herdr-dispatch/turn-guard/`：`panes/<pane_id>.json` + 同名 `.lock`（`worker`（B2 定义）、`markers`（marker 路径列表）、`budget`、`stop_reason`）、`probes.json`（A1 写）、`turn-guard.log`。任务 marker 在 `$(git rev-parse --git-common-dir)/trellis-guard/<task>.json`：`{task, task_json_path, worktree, branch, base_sha, last_seen_head, pane, phase: started|archived, started_at, archived_at, pause_before_merge, block_log[]}`；`base_sha` = `mark-start` 时任务分支 tip。所有 pane 文件与 marker 的读改写都在对应 `.lock` 下进行，保留未涉及字段。
+新文件 + `tests/test_turn_guard.py`；另改 `scripts/runtime.py`（`submit` 读 `probes.json` 打 `guard_unsupported` 警告）。依赖 B0（`is_landed`、`dispatch_wait_status`）、B5（`HERDR_DISPATCH_ROUND` 契约）与 B2（`paneguard.py` 的绑定文件 schema 与锁）。状态目录 `~/.local/state/herdr-dispatch/turn-guard/`：`panes/<pane_id>.json` + 同名 `.lock`（`worker`（B2 定义）、`markers`（marker 路径列表）、`budget`、`stop_reason`）、`probes.json`（A1 写）、`turn-guard.log`。任务 marker 在 `$(git rev-parse --git-common-dir)/trellis-guard/<task>.json`：`{task, task_json_path, worktree, branch, base_sha, last_seen_head, pane, phase: started|archived, started_at, archived_at, pause_before_merge, block_log[]}`；`base_sha` = `mark-start` 时任务分支 tip。`task` = 任务**目录名**（`.trellis/tasks/<dir>`，即 `TASK_JSON_PATH` 的父目录名；`task.json.name` 只是 slug），marker 文件名也用目录名——与 T3 的 `dir_name` 身份和 `guard_matches_task` 一致。所有 pane 文件与 marker 的读改写都在对应 `.lock` 下进行，保留未涉及字段。
 
 | 子命令 | 行为 |
 | --- | --- |
-| `hook --event {stop,prompt} --harness {claude,codex,grok}` | stdin 读 hook JSON。**先按 `--event` 分流**：`prompt` 只更新活动状态（Worker：写 `turn.json` + busy；主控：清预算），永远 exit 0。`stop` 才做守卫：allow（exit 0）或 block（stderr 一行原因 + exit 2；Grok 若其 Stop 载荷声明原生阻止能力，则按 `~/.cache/firstmate-ref/bin/fm-turnend-guard-grok.sh` 的方式输出）。未预期异常 → exit 0（fail-open）并把异常追加到 `turn-guard.log`；**已知校验失败（发布不匹配、绑定无效、git 命令失败）不是异常，按判定表处理** |
+| `hook --event {stop,prompt} --harness {claude,codex,grok}` | stdin 读 hook JSON。**先按 `--event` 分流**：`prompt` 只做主控侧的清预算（Worker 模式什么都不写），永远 exit 0。`stop` 才做守卫：allow（exit 0）或 block（stderr 一行原因 + exit 2；Grok 若其 Stop 载荷声明原生阻止能力，则按 `~/.cache/firstmate-ref/bin/fm-turnend-guard-grok.sh` 的方式输出）。未预期异常 → exit 0（fail-open）并把异常追加到 `turn-guard.log`；**已知校验失败（发布不匹配、绑定无效、git 命令失败）不是异常，按判定表处理** |
 | `install [--dry-run]` | 幂等合并注册到 `~/.claude/settings.json`（Stop、UserPromptSubmit，命令前缀 `[ -z "${GROK_AGENT:-}${GROK_HOOK_EVENT:-}" ] \|\| exit 0;`）、`~/.codex/hooks.json`（Stop、UserPromptSubmit）、`~/.grok/hooks/turn-guard.json`（Stop、UserPromptSubmit，格式照 `~/.grok/hooks/moshi-hooks.json`）；改前备份 `<file>.bak.<UTC>`；不动已有条目；Codex 的 hook 信任（`[hooks.state."<path>:<event>:<i>:<j>"] trusted_hash`）不由脚本写入：`install` 打印「需要在 Codex 交互式会话里接受一次 hook 信任」并把这条列入 `doctor`；不反推哈希算法 |
 | `doctor` | 检查三处注册、Codex 信任状态、`HERDR_PANE_ID` 是否存在、状态目录可写、日志最近 24h 异常数、`probes.json` 各 harness 结果（`supported/unsupported/untested`）；输出 JSON |
 | `mark-start` | Trellis `after_start` hook 调用（env `TASK_JSON_PATH`）：写 marker（`phase=started`，`pane=$HERDR_PANE_ID`，`base_sha`），并在 pane 锁下把 marker 路径加入 `panes/<pane>.json.markers`；无 `HERDR_PANE_ID` 时不写 |
@@ -265,29 +261,28 @@ cwd 一律 `~/.skills-manager/skills-wt/workflow-v2/herdr-dispatch`。每张卡�
 | `stop --reason "<text>"` | 在 `panes/<pane>.json` 记 `stop_reason`（一次性）；下一次 `stop` 事件消费它并 allow |
 | `status [--repo]` | 打印当前 pane 绑定与 marker；`--repo` 列本仓 `trellis-guard/*.json` 全部 marker（含归档后路径、分支、`pr_url`（从 task.json 读）、pane、phase、pause） |
 | `adopt <task> [--force]` | 一次原子操作（先锁旧 pane 文件再锁当前 pane 文件，按 pane id 排序加锁避免死锁）：把 marker 路径从旧 pane 的 `markers` 移除、加入当前 pane 的 `markers`、再写 `marker.pane = $HERDR_PANE_ID`；保留归档路径、PR、`pause_before_merge`。当前 pane 有有效 Worker 绑定时拒绝（`adopt_conflicts_worker`），`--force` 才覆盖。旧 pane 从此不再守卫该任务 |
-| `bind-test <round_dir>` / `unbind-test` | A1 探针用：把当前 pane 绑到一个临时轮次目录（写完整 `worker` 记录，assignee 取 `agent_get($HERDR_PANE_ID)`，session 可为 null 以测试补全路径）/ 解绑 |
+| `bind-test <round_dir>` / `unbind-test` | A1 探针用：把当前 pane 绑到一个临时轮次目录（写完整 `worker` 记录，assignee 取 `agent_get($HERDR_PANE_ID)` 的 pane/terminal/agent/name）/ 解绑 |
 
 **marker 解除条件**（守卫自检与 `mark-merged` 共用，全部成立才解除）：`phase == archived`；分支 tip（分支已删则 `last_seen_head`）≠ `base_sha`；`is_landed(该 head, origin/<default>)` 成立（`git fetch origin <default>` 每仓每 60s 最多一次，时间记在 marker）；`worktree` 目录若仍存在则 `git status --porcelain --untracked-files=all` 为空。`phase == started` 的 marker 永不自动解除。
 
 `stop` 事件判定顺序：
 
-1. `HERDR_PANE_ID` 为空 → allow（不在 Herdr）。
-2. 解析 Worker 绑定：环境 `HERDR_DISPATCH_ROUND`（仅无头路径设置）或 `panes/<pane>.json.worker`。绑定有效 = `<round_dir>/task.json` 的 `dispatch_id/round` 与绑定一致；`<round_dir>/request_fingerprint.txt` == 绑定的 `fingerprint`；且执行者身份按下面规则确认（一律 `observed = client.agent_get($HERDR_PANE_ID)`，要求 `observed` 的 `pane_id / terminal_id / agent / name` 与绑定 `assignee` **四项全等**，任一不等或 `agent_not_found` → 无效；terminal 相同不是充分条件）：
-   - 绑定 `assignee.agent_session` 非空：一律要求 `observed.agent_session.value` == 绑定；载荷带会话 id 时还要求载荷 == 两者。任一缺失或不等 → 无效（Herdr 当前报告的 session 是身份事实，载荷只是旁证；同 pane/terminal/agent/name 换了新会话 S2 时，迟到的旧载荷 S1 不能让旧绑定继续有效，`runtime.classify_identity` 对这一观察本来就是 mismatch）。
-   - 绑定 `assignee.agent_session` 为 null（待补全）：载荷会话 id 必须 == `observed.agent_session.value`，然后调用 `paneguard.fill_session`（B2 唯一入口，三处一起写）：`filled`/`noop` → 有效；`rejected`/`fill_conflict` → 无效。同 terminal 的另一 harness 或另一 name、Herdr 报告的 session 与载荷不符 → 不是待补全，是接管 → 无效。
-   无效绑定按无绑定处理（进入主控模式）并记日志；**不沿用旧 Worker 身份**。
-3. 绑定有效 → **Worker 模式**（优先于主控模式）：调用 `runtime.load_published_snapshot(store, task)` 成功 → allow；返回 None 或抛 `DispatchError`（`published_tampered` 等）→ 视为未有效交卷 → block，原因给出交卷命令（`request.md` 最后一段）并说明「无法完成也要交卷 `status=blocked`」；若是 tampered 另加一句「已发布制品与 published.json 不符，需新一轮」。预算：Codex/Grok 载荷 `stop_hook_active`/`stopHookActive` 为 true → allow（同一回合只拦一次，camelCase 优先）；Claude 用 `<round_dir>/.guard-blocks` 计数，≤3 次拦，之后 allow。allow 时按 B2 活动协议写 `busy-state.json idle`（token 取自本回合开始时的 `turn.json`）。
+1. `HERDR_DISPATCH_ROUND` 与 `HERDR_PANE_ID` 都为空 → allow（既不在 Herdr 也不是无头 Worker）。
+2. 解析 Worker 绑定，**环境优先**：
+   - `HERDR_DISPATCH_ROUND` 非空（无头路径）→ 绑定 = 该目录；有效 = 目录存在、`task.json` 可读且 `dispatch_id/round` 与目录名一致、`request_fingerprint.txt` 存在。**不做身份核对**（进程就是身份）。无效 → allow 并记日志（无头进程不能进主控模式）。
+   - 否则 `panes/<pane>.json.worker`（pane 路径）：有效 = `<round_dir>/task.json` 的 `dispatch_id/round` 与绑定一致；`<round_dir>/request_fingerprint.txt` == 绑定的 `fingerprint`；`observed = client.agent_get($HERDR_PANE_ID)` 的 `pane_id / terminal_id / agent / name` 与绑定 `assignee` **四项全等**（任一不等或 `agent_not_found` → 无效；terminal 相同不是充分条件）。不比较也不补全 `agent_session`。无效绑定按无绑定处理（进入主控模式）并记日志；**不沿用旧 Worker 身份**。
+3. 绑定有效 → **Worker 模式**（优先于主控模式）：调用 `runtime.load_published_snapshot(store, task)` 成功 → allow；返回 None 或抛 `DispatchError`（`published_tampered` 等）→ 视为未有效交卷 → block，原因给出交卷命令（`request.md` 最后一段）并说明「无法完成也要交卷 `status=blocked`」；若是 tampered 另加一句「已发布制品与 published.json 不符，需新一轮」。预算：Codex/Grok 载荷 `stop_hook_active`/`stopHookActive` 为 true → allow（同一回合只拦一次，camelCase 优先）；Claude 用 `<round_dir>/.guard-blocks` 计数，≤3 次拦，之后 allow。无头路径同样适用（Stop hook 在 `codex exec`/`grok -p` 里是否触发由 A1 探针记录；不触发时由 B5 runner 的一次纠正兜底）。
 4. 否则 **主控模式**：读 `panes/<pane>.json.markers`，逐个：marker 文件不存在 → 从列表移除；满足「解除条件」→ 删 marker、移除；否则更新 `last_seen_head` 并保留。
 5. 没有剩余 marker → allow。
 6. `stop_reason` 存在 → 消费并 allow。
 7. 派工状态（**先收集再判断**）：枚举 `state.controller.pane_id == $HERDR_PANE_ID` 的全部派单，对每个调用 `dispatch_wait_status`，分成三类：`waiting`（True）、`settled`（False 且 reason == `settled`）、`action_required`（其余全部 False——含 `collect --claim`、`resume`、`status`（终态但执行者未结算）、人工处置）。有任何 `action_required` → block，原因列出每个派单的下一步；否则有任何 `waiting` → allow；否则（只有 settled 或没有派单）进入第 8 步。历史已结算派单永远不算 `action_required`。
 8. 否则 block，原因：`任务 <name> 已开始且未完成（phase=<started|archived>, branch=<b>）；继续 3.4–3.5，或先 turn_guard.py stop --reason`；若 `pause_before_merge` 为 true 且分支已有 PR，原因改为提示「用户要求合并前停：先 stop --reason」。预算：30 分钟内最多 3 次 block（pane 文件记时间戳），超出 allow 并在原因里注明预算耗尽；`prompt` 事件清预算。
 
-`prompt` 事件：Worker 绑定有效（含待补全）→ 写 `turn.json` 并按 B2 写 `busy`；主控 → 清预算；其余不动。
+`prompt` 事件：主控 → 清预算；Worker（任一路径）→ 不动。
 
 `submit` 警告：`runtime.submit` 读 `probes.json`，目标 harness 结果为 `unsupported` 或 `untested` 时在返回 JSON 里加 `warnings: ["guard_unsupported: <harness>"]`（不阻止派工）。
 
-验收：单测覆盖判定表每一行（假 payload、临时 git 仓 + bare origin、假 marker、假 state home、假 Herdr；B2 已交付，绑定/活动文件用 `paneguard.py` 真实读写）：(a) prompt 事件三种 harness 都放行且只写状态；(b) Worker：合法发布 allow；未发布 block；report.md 缺失/被改、`published.json` 的 round/id 错、非法 result、任一哈希错 → 都按未交卷 block（不是 fail-open）；r1 已发布但绑定指向 r2 未发布 → block；**启动时 `agent_session=None`：Stop 先于 watcher 补全到达（载荷带 session、terminal 一致）→ 未交卷 block，且绑定被补全；Stop 后于 watcher 补全 → 同样 block；补全后合法 publish → allow；补全后载荷 session 换了 → 不进 Worker 模式；迟到补全不得写进已进入 r2/新派单的绑定；同 terminal 换了 harness（`agent_get.agent`/`name` 不同、terminal 相同）→ 待补全绑定不补全、不进 Worker 模式；同 harness 新会话（`agent_get.agent_session` 与载荷都是新值、绑定已非 null）→ 无效；hook 先补全后 watcher `observe_once` → 三处一致、不再改写；hook 与 watcher 并发补全 → 三处一致且只写一次**；载荷会话 id 与非空绑定不一致 → 不进 Worker 模式；绑定 S1、Herdr 当前 S2、迟到载荷 S1（同 harness/name/terminal）→ 无效、不进 Worker 模式、不补写；绑定 S1、Herdr S1、载荷 S1 → 有效；绑定 S1、Herdr S1、载荷无 session → 有效；(c) Codex/Grok `stop_hook_active` 第二次 allow、Claude 第 4 次 allow；(d) 主控在主检出与在任务 worktree 都受守卫；同仓另一 pane 无绑定 → allow；(e) **`phase=started` 且分支 tip == `base_sha` → 保留**；started + worktree 有未提交业务改动 → 保留；仅空提交 → 保留；归档后未落地 → block；PR OPEN → block；同名旧 PR 已合并但当前 head 未落地 → block；归档 + 落地 + worktree 干净 → marker 删除并 allow；归档 + 落地但 worktree 又有未提交成果 → 保留；(f) 派工状态：单派单 `waiting` → allow；单派单每种 `action_required` reason → block 且 stderr 含下一步；**同 pane 一张 waiting + 一张 result_ready → block；waiting + identity_changed 未 claim → block；waiting + accepted 但同一执行者仍 working → block（reason 含 `status`）；waiting + 本轮 `wakeup_retry_exhausted` 且组事件未 claim → block（`collect --claim`）；waiting + 已 settled 的历史派单（即使控制端 session 已变）→ allow**；只有 settled 派单 → 落到第 8 步；(g) 两个 marker 一落地一未落地 → block；`stop --reason` 消费一次后再 stop 又 block；(h) 预算 3 次/30 分钟；(i) 未预期异常（坏 JSON、git 不可用）→ exit 0 且日志有记录；(j) `install --dry-run` 对本机三个文件副本生成的合并结果不丢任何现有条目；(k) `adopt`：旧 pane 索引不再含该路径、新 pane 索引含、marker.pane 更新、pause 保留；当前 pane 有 Worker 绑定时拒绝；(l) `submit` 对 `probes.json` 标 unsupported 的 harness 返回 warning。真实 harness 探针不在本卡（见 A1）。
+验收：单测覆盖判定表每一行（假 payload、临时 git 仓 + bare origin、假 marker、假 state home、假 Herdr；B2 已交付，绑定文件用 `paneguard.py` 真实读写）：(a) prompt 事件三种 harness 都放行且 Worker 路径不写任何文件；(b) Worker：合法发布 allow；未发布 block；report.md 缺失/被改、`published.json` 的 round/id 错、非法 result、任一哈希错 → 都按未交卷 block（不是 fail-open）；r1 已发布但绑定指向 r2 未发布 → block；**无头**：`HERDR_DISPATCH_ROUND` 指向未交卷轮次 → block，交卷后 → allow，目录不存在 / task.json 不符 → allow 且日志；环境与 pane 文件同时存在 → 环境优先；**pane**：同 terminal 换了 harness/name（`agent_get.agent`/`name` 不同）→ 不进 Worker 模式；terminal 变 → 无效；`agent_not_found` → 无效；(c) Codex/Grok `stop_hook_active` 第二次 allow、Claude 第 4 次 allow；(d) 主控在主检出与在任务 worktree 都受守卫；同仓另一 pane 无绑定 → allow；(e) **`phase=started` 且分支 tip == `base_sha` → 保留**；started + worktree 有未提交业务改动 → 保留；仅空提交 → 保留；归档后未落地 → block；PR OPEN → block；同名旧 PR 已合并但当前 head 未落地 → block；归档 + 落地 + worktree 干净 → marker 删除并 allow；归档 + 落地但 worktree 又有未提交成果 → 保留；(f) 派工状态：单派单 `waiting` → allow；单派单每种 `action_required` reason → block 且 stderr 含下一步；**同 pane 一张 waiting + 一张 result_ready → block；waiting + identity_changed 未 claim → block；waiting + accepted 但同一执行者仍 working → block（reason 含 `status`）；waiting + 本轮 `wakeup_retry_exhausted` 且组事件未 claim → block（`collect --claim`）；waiting + 已 settled 的历史派单（即使控制端 session 已变）→ allow**；只有 settled 派单 → 落到第 8 步；(g) 两个 marker 一落地一未落地 → block；`stop --reason` 消费一次后再 stop 又 block；(h) 预算 3 次/30 分钟；(i) 未预期异常（坏 JSON、git 不可用）→ exit 0 且日志有记录；(j) `install --dry-run` 对本机三个文件副本生成的合并结果不丢任何现有条目；(k) `adopt`：旧 pane 索引不再含该路径、新 pane 索引含、marker.pane 更新、pause 保留；当前 pane 有 Worker 绑定时拒绝；(l) `submit` 对 `probes.json` 标 unsupported 的 harness 返回 warning。真实 harness 探针不在本卡（见 A1）。
 
 #### B4 卡片渲染清理
 
@@ -321,17 +316,30 @@ cwd 一律 `~/.skills-manager/skills-wt/workflow-v2/herdr-dispatch`。每张卡�
 
 验收：临时仓测试：从 `task/*` linked worktree 创建多卡 run，squash 到 main 并删除远端 task 分支后仍能清理；错误目标（unit.target_ref 不含成果）、缺 `parent_acceptance`、stale acceptance（H0 后有清单外改动）、未验收新增成果、脏树、写入中（该卡派单在飞）→ 均 keep 且原因准确；**从 main 新建、干净、HEAD==基线但派单仍 running 的卡片 worktree → keep `dispatch_in_flight`**；add→revert 反例 keep；对 `enf-0926` 跑 `run cleanup`（不加 `--apply`）把输出附在报告里。
 
-#### B5 无头审核会话
+#### B5 无头执行与审核（主路径；B2/B1 的前置）
 
-文件：`scripts/adapters.py`（每个 adapter 新增 `headless_args(task, request_path, output_path)`；Claude adapter 返回 `None` 表示不支持）、新 `scripts/headless.py`（起进程、cwd=task cwd、env 加 `HERDR_DISPATCH_ROUND`、stdout/stderr 落轮次目录、超时默认 1800s、结束后按现有 publish 协议检查 `published.json`）、`scripts/watcher.py`（`session=headless` 时不建 tab、不做窗口清理、不写 pane 绑定）、`scripts/runcmd.py`（`create_run` 保留 `reviewer.session`；`_build_task` 把它写进 `task.assignee.session`；`session` 只接受 `headless`）、`scripts/protocol.py`（`assignee.session` 字段校验）、`references/protocol.md`、`references/adapters.md`、`references/review-card.md`。
+文件：`scripts/adapters.py`（每个 adapter 新增 `headless_args(task, request_path) -> list[str] | None`、`headless_resume_args(task, session_id, request_path)`、`headless_session_id(stdout_path, outputs) -> str | None`、`headless_preflight(task)`；Claude adapter 三者返回 `None`/抛 `headless_unsupported`）、新 `scripts/headless.py`（进程启动/观察/终止/纠正）、`scripts/protocol.py`（`assignee.session` 校验与默认值解析 `resolve_session(harness, assignee)`）、`scripts/runtime.py`（`submit` 的 `_assignee_live_status`、`dispatch_settled` 执行者观察、`finalize_cancel` 资格、`cancel`、`release_card_window`/`retire_previous_window`/`cleanup` 的 headless 分支）、`scripts/watcher.py`（`ensure_assignee`/`maybe_send`/`observe_once` 的 headless 分支、`watch_loop` 的 `agent_wait` 分支）、`scripts/runcmd.py`（`create_run` 保留 `reviewer.session` 与 `cards[].session`；`_build_task` 写进 `task.assignee.session`）、`scripts/herdr_dispatch.py`（`status --all` 行的执行者列）、`references/protocol.md`、`references/adapters.md`、`references/review-card.md`、`references/card-planning.md`。
 
-1. 触发：task.json `assignee.session = "headless"`，或 plan `reviewer.session = "headless"`；仅 `role == reviewer`；`harness == claude` 时报错 `headless_unsupported`；旧 task/plan 没有该字段行为不变。
-2. 命令以真实 `--help` 为准，预期：`codex exec --dangerously-bypass-approvals-and-sandbox -C <cwd> …`（stdin 喂 request.md）；`grok -p … --always-approve --no-subagents --output-format json`；`cursor-agent -p --output-format json --trust --yolo …`。Codex 信任仍走现有 `codex_trust_folder`。
-3. 交卷协议不变：reviewer 仍需写 `report.md` + `result.json` 并跑 publish 命令；进程退出而未交卷 → 现有 `missing_report` 路径，并把 stdout 尾部 40 行附进事件。
+1. **触发与解析**：`assignee.session` 显式 `headless|pane` 优先；缺省按 §0 #4（`claude` → pane，其余 → headless）。解析结果写进 `task.assignee.session`（归一化后的 task 永远有该字段）。`claude + headless` → `headless_unsupported`；`window`、`reuse`、`busy_policy` 对 headless 仍合法：`reuse` = 用上一轮会话 id 续（第 5 条），`window` 忽略。
+2. **进程**：`headless.start(store, task)`：以**包装进程** `python3 headless.py run <round_dir>` 启动（`start_new_session=True`，自成进程组），包装进程再起 harness 子进程：cwd = `task.cwd`；env = `os.environ` **剔除** `HERDR_PANE_ID/HERDR_TAB_ID/HERDR_WORKSPACE_ID` 再加 `HERDR_DISPATCH_ROUND=<round_dir>`、`HERDR_DISPATCH_ID`、`HERDR_DISPATCH_ROLE`；stdin = `request.md`（Codex 用 stdin，Grok 用 `--prompt-file`，Cursor 以实测为准）；stdout/stderr → `<round_dir>/headless/stdout.log`、`stderr.log`；记录 `<round_dir>/headless/process.json = {wrapper_pid, pgid, child_pid, argv, started_at, timeout_s, exit_code: null, ended_at: null, session_id: null, correction_used: false}`；子进程退出后包装进程写 `exit_code/ended_at`（原子写），再解析 `session_id`（adapter `headless_session_id`）写回。包装进程不依赖 watcher 存活；watcher 死后 `resume` 起的新 watcher 通过 `process.json` 重新接管（`os.kill(wrapper_pid, 0)` + `ps -o command=` 的 argv 比对，避免 pid 复用）。
+3. **命令（以真实 `--help` 为准，实测后写进 `references/adapters.md`）**：Codex `codex exec --dangerously-bypass-approvals-and-sandbox -C <cwd> [-m <model>] --json -o <round_dir>/headless/last-message.md -`（stdin 喂 request）；续轮 `codex exec resume <session_id> [-C <cwd>] --dangerously-bypass-approvals-and-sandbox --json -`；Codex 信任仍走现有 `codex_trust_folder`。Grok `grok --prompt-file <request.md> --cwd <cwd> --always-approve --no-subagents --output-format json --session-id <uuid 由我们生成> [-m <model>]`；续轮 `grok --resume <uuid> --prompt-file … --always-approve --no-subagents --output-format json`。Cursor `cursor-agent -p --output-format json --trust --yolo --workspace <cwd> [--model <m>]`（prompt 传法与 chatId 字段实测）；续轮 `--resume <chatId>`。`extra_agent_args` 追加在末尾。`mode`/只读模式：reviewer 卡沿用现有 `readonly_modes`（Cursor），Codex/Grok 审核卡靠 `allow_write` 为空 + 卡面约束（与现行 pane 路径相同，不新增沙箱）。
+4. **观察（`observe_headless`，替代 `observe_once` 的 `agent_get` 分支）**：每次轮询：`load_valid_result` 有 → `result_ready`（与 pane 路径同一函数）；进程活着 → `running`（`persist_lifecycle` 不记 settle_candidate）；超时（默认 executor 3600s、reviewer 1800s，`assignee.timeout_s` 覆盖）→ SIGTERM 进程组、10s 后 SIGKILL，事件 `runtime_error reason=headless_timeout`，phase `failed`；进程已退出且未交卷 → **一次纠正**：`session_id` 已知且 `correction_used == false` → `correction_used = true`，用 `headless_resume_args` 起新进程，prompt 固定为「你上一回合结束了但没有交卷。现在只做一件事：按下面的命令交卷；无法完成也要交卷 `status=blocked`。\n<request.md 最后一段 publish 命令>」；纠正进程也退出仍未交卷、或没有 `session_id` → 现有 `missing_report` 路径（`ensure_runtime_error`，detail 加 `exit_code`、`correction_used`、stdout 尾部 40 行）。非零退出且已交卷 → 仍 `result_ready`，detail 记 `exit_code`。
+5. **续轮（`reuse: true`）**：上一轮 `process.json.session_id` 非空 → 用 `headless_resume_args`，request 照常渲染（含 `must_fix`）；为空 → 新进程，并在 request 头部加一行「上一轮报告：<rounds/<n-1>/report.md>（请先读）」。`ensure_assignee` 的 `classify_reuse` 不适用于 headless：busy 判定 = 上一轮包装进程仍活 → `assignee_busy`。
+6. **其他接口的 headless 分支**（都以 `state.assignee.session == headless` 分流；`state.assignee` 记 `{session: headless, wrapper_pid, pgid, process_path, session_id, harness, model, project_cwd, artifact_cwd, dispatch_id, pane_id: null, tab_id: null, terminal_id: null, name: null, agent: <harness>}`）：
+   - `runtime._assignee_live_status` → 进程活 `working`，已退出 `done`，`process.json` 缺失 `gone`。
+   - `dispatch_settled` 执行者观察（B0 真值表第 2 条）：进程活 → `executor_active`（在飞）；退出/缺失 → `gone`；`os.kill` 报非 ESRCH 的错 → `query_failed`。无 idle 层，不取原生证据。归属规则不适用（无 pane/terminal）。
+   - `finalize_cancel` 资格：进程活 → 先 SIGTERM 进程组、等 `settle_confirm_s`、再 SIGKILL，确认退出后按 `gone` 结算；`post_cancel_changes` 照算。`cancel`（watcher 死）同路径。
+   - `release_card_window`、`retire_previous_window`、`cleanup` 的关窗 → 直接 `{closed: True, reason: "headless"}`；`cleanup` 时进程仍活 → 返回 `process_alive` + `next_step="cancel <id>"`，不杀。
+   - `classify_identity`：headless 的身份 = `process.json` 的 `(wrapper_pid, started_at, argv)`；进程被替换（pid 复用、argv 不同）→ `identity_changed` 走现有路径。
+   - `status --all` 执行者列显示 `headless pid=<n> alive|exited(<code>)`。
+   - 唤醒、`collect`、`accept`、`reject`、`publish` 协议不变（主控仍在 Herdr）。
+7. **交卷协议不变**：Worker 仍写 `report.md` + `result.json` 并跑 publish 命令。
 
-验收：用假 harness 可执行文件（仿 `tests/fake_herdr.py`）测试三种 harness 的命令组装、超时、交卷/未交卷两种结局；**集成测试**：含 `reviewer.session=headless` 的 plan 经 `run create → run dispatch` 到假无头进程，断言不调用 `tab_create`/`pane_split`、任务 `assignee.session == "headless"`、子进程环境含 `HERDR_DISPATCH_ROUND`、结果可 `publish`/`collect`；普通 `submit` 路径同样断言；真实探针：对本计划文件派一张 `contract_review` 无头卡给 codex（用候选 CLI 路径 `~/.skills-manager/skills-wt/workflow-v2/herdr-dispatch/scripts/herdr_dispatch.py`），得到 `published.json`。
+验收：用假 harness 可执行文件（`tests/fake_harness/{codex,grok,cursor-agent}`，Python 脚本，按环境变量 `FAKE_HARNESS_MODE` 决定行为）测试三种 harness 的命令组装（argv 逐项断言）、环境（子进程里 `HERDR_PANE_ID` 不存在、`HERDR_DISPATCH_ROUND` 正确）、cwd、stdin/`--prompt-file` 内容 == `request.md`；结局：交卷 → `result_ready` 且 `collect --claim` 可领；未交卷 + 有 session id → 纠正进程以 resume 参数启动、交卷 → `result_ready`、仍不交卷 → `missing_report` 事件含 `exit_code`/`correction_used=true`/stdout 尾部；未交卷 + 无 session id → 直接 `missing_report`；超时 → 进程组被杀（孙进程也死）、`headless_timeout`；非零退出 + 已交卷 → `result_ready`；`cancel`（watcher 活/死两种）→ 进程组被杀、`cancelled` 落地、holder settled、与 pane 路径制品逐字段相同；watcher 被 kill 后进程继续跑并交卷，`resume` 的新 watcher 接管同一 `wrapper_pid` 并 `result_ready`；pid 复用夹具（`process.json` 指向的 pid 是别的 argv）→ `identity_changed`；`reuse: true` 第 2 轮：有 session id → resume 参数、`must_fix` 在 request 里；无 → 新进程 + 报告路径头部；`status --all` 对活/死 headless 派单分别 exit 1 / 0；`dispatch_wait_status` 对活 headless 派单 → `waiting`；**集成测试**：含 `reviewer.session=headless` 与缺省 session 的 plan 经 `run create → run dispatch`，断言不调用 `tab_create`/`pane_split`、任务 `assignee.session` 解析正确（grok 执行卡 → headless，claude 执行卡 → pane）；`claude + headless` → `headless_unsupported`；显式 `session=pane` 的 grok 卡仍走 pane 路径且现有 pane 测试全部不变；**真实探针**（候选 CLI `~/.skills-manager/skills-wt/workflow-v2/herdr-dispatch/scripts/herdr_dispatch.py`）：(i) 对本计划文件派一张 `contract_review` 无头卡给 codex → `published.json`；(ii) 在临时 git 仓派一张最小 execute 无头卡给 grok（改一个文件并提交）→ `published.json`，再 `reject` 一次验证 `--resume` 续轮；(iii) 记录三个 CLI 实测的会话 id 字段与 Stop hook 是否触发（写 `references/adapters.md`）。
 
-#### B7（可裁剪）转向收件箱
+#### B7（可裁剪；仅 pane 路径）转向收件箱
+
+r7 后执行者默认无头（单回合进程，无法中途投递），本卡只对 pane 路径有意义，默认裁剪。
 
 文件：新 `scripts/inbox.py`、`scripts/herdr_dispatch.py`（`steer <dispatch_id> "<text>"`、`inbox <dispatch_id>`）、`scripts/watcher.py`、`scripts/templates.py`（卡面加一段收件箱约定）。按 `~/.cache/firstmate-ref/bin/fm-task-inbox-lib.sh` 的语义：`<round>/inbox/NNN.msg`（三位序号、temp+atomic mv）；门铃是一行常量文本，通过现有 `client.agent_prompt` 投递；Worker `mv` 到 `inbox/handled/` 即 ack；watcher 90s 后未 ack 再响，最多 3 次后事件 `steer_unacked`；pane 为 dead/missing 不敲。验收：假 Herdr 测试三种结局（首响即 ack、第二次响后 ack、三次未 ack 升级）。
 
@@ -342,10 +350,14 @@ cwd 一律 `~/.skills-manager/skills-wt/workflow-v2/herdr-dispatch`。每张卡�
 前置：B0–B2 已合并到 skills `main`。
 
 1. 主控运行 `turn_guard.py install --dry-run` 看合并结果，再 `install`；`doctor` 结构全绿；Codex 信任若需交互，让用户在本 Herdr 会话里 `! codex` 接受一次。
-2. **真实探针（三 harness 门禁）**：对 Claude / Codex / Grok 各开一个 Herdr 标签页（`herdr tab create` + `herdr agent start`）。每个 harness 跑两条时序：(a) **先建立身份**：先发一句无关 prompt 让 harness 产生 session，再在该 pane 的 shell 里 `turn_guard.py bind-test <临时轮次目录>`（目录含合法 `task.json`、`request_fingerprint.txt`；assignee 取 `agent_get` 的完整身份），让它「什么都不做直接结束」，观察：第一次被拦且 stderr 原因正确、第二次放行（Codex/Grok）或第 4 次放行（Claude）；随后 `publish` 一份合法结果再结束 → 放行；(b) **补全路径**：新 pane 启动 harness 后立刻 `bind-test`（session 为 null），再发第一句 prompt 让它直接结束 → 必须被拦，且绑定的 `agent_session` 已被补全并与 Stop 载荷的会话 id 对应、`state`/pane/`activity.json` 三处一致。(c) **事件串行探针**：用探针专用 hook 配置（Stop 命令前加 `sleep 8`，不进正式注册）让 harness 结束一个回合，Stop hook 仍在睡眠时立刻提交下一句 prompt：prompt hook 写的 `turn.json.started_at` 晚于 Stop hook 退出时刻、且 Stop hook 读到的 `turn_seq` == 本回合 prompt hook 写入的值 → `serial_events=true`；否则 false。(d) **接管负例**：在 (b) 的 pane 里停掉执行者后用另一 harness 在同一 pane `herdr agent start`（terminal 不变），让它直接结束 → 不得被当作 Worker（日志 `fill_session: rejected agent/name`）；再用同一 harness 重新启动（新 session）→ 同样不得进 Worker 模式。每个 harness 记录：实际加载的 hook 配置文件、命令串、载荷（含会话 id 字段名）与退出码、四条时序的结论，写入 `~/.local/state/herdr-dispatch/turn-guard/probes.json`（每条 `{harness, stop_supported, prompt_supported, fill_supported, takeover_rejected, serial_events, payload_session_field, hook_files, checked_at}`；`doctor`、`submit` 警告与 B2 消费规则读它）。任一 `unsupported` 或 `serial_events != true`：不宣称全绿；B2 对该 harness 的 idle 自动只作线索；A3 不得依赖该 harness 的守卫。
+2. **真实探针**（r7）：
+   - **主控侧**（Claude / Grok / Codex 各一个 Herdr 标签页；这是 A3 要用的三种主控）：在临时仓 `mark-start` 一个假任务后让 harness「什么都不做直接结束」→ 第一次被拦且 stderr 原因正确、预算与 `stop --reason` 行为正确；`mark-merged` 后放行。
+   - **Claude pane Worker**（唯一的 pane Worker）：先发一句无关 prompt，再在该 pane 的 shell 里 `turn_guard.py bind-test <临时轮次目录>`（目录含合法 `task.json`、`request_fingerprint.txt`），让它直接结束 → 被拦、第 4 次放行；`publish` 后放行。**接管负例**：停掉执行者后用另一 harness 在同一 pane `herdr agent start`（terminal 不变），直接结束 → 不得被当作 Worker（日志 `binding rejected: agent/name`）。
+   - **无头 Worker**（Codex、Grok，Cursor 可选）：在临时轮次目录下用 B5 的 runner 真实起一次「不交卷直接结束」的进程，记录 Stop hook 是否触发、是否拦住（`headless_stop_supported`），以及 runner 的一次纠正是否把交卷补上。
+   每个 harness 记录：实际加载的 hook 配置文件、命令串、载荷与退出码，写入 `~/.local/state/herdr-dispatch/turn-guard/probes.json`（每条 `{harness, role_paths: {controller, pane_worker, headless_worker}, stop_supported, headless_stop_supported, takeover_rejected, hook_files, checked_at}`；`doctor`、`submit` 警告读它）。任一主控 harness `unsupported` → 不宣称全绿；A3 不得用该 harness 当主控。无头 Worker 的 `headless_stop_supported=false` 不阻塞（B5 纠正兜底），只记录。
 3. `~/.skills-manager/local-src/trellis-wrap-up/SKILL.md`（56 行）改为恢复入口措辞（`turn_guard.py status --repo` → `adopt` → 续做 3.4–3.5），与 T2 一致；用 skills-manager 现有更新命令同步部署副本（先读 `skills-manager-cli skills --help`）。
 
-验收：`doctor` 输出 JSON 附报告；`probes.json` 三条记录（每条含两条时序）；hooks 文件备份存在；三个 hooks 文件的原有条目一条不少（`install --dry-run` 前后 diff）。
+验收：`doctor` 输出 JSON 附报告；`probes.json` 三条主控记录 + Claude pane Worker + 两条无头记录；hooks 文件备份存在；三个 hooks 文件的原有条目一条不少（`install --dry-run` 前后 diff）。
 
 #### A2 sanctions-radar 应用 PR
 
@@ -402,15 +414,13 @@ cwd `~/Documents/Project/sanctions-radar`，分支 `chore/workflow-v2`（从最�
 | 同 pane 一张正常等待 + 一张需处置 | 被拦（需处置优先） |
 | 同一仓另一个无关会话（无绑定） | 不被拦 |
 | 主控在任务 worktree 里工作 | 与在主检出一样受守卫 |
-| Worker 未交卷就结束 | 被拦，提示交卷；Claude 最多 3 次、Codex/Grok 每回合 1 次 |
-| Worker 首个 prompt 后才有 session（Stop 先于/后于 watcher 补全） | 仍被拦；绑定补全；合法交卷后放行 |
+| Worker 未交卷就结束 | 被拦，提示交卷；Claude 最多 3 次、Codex/Grok 每回合 1 次（pane 与无头都适用；无头 hook 不触发时由 runner 一次纠正兜底） |
 | Worker 发布制品被改/缺失 | 视为未交卷，被拦 |
 | Worker 同会话 r1 已交卷、r2 未交卷 | 被拦（绑定指向 r2） |
 | Worker pane 被别的会话接管 | 绑定失效，不按旧 Worker 放行 |
-| Worker 交卷后结束 | 放行；标签变 `📬 已交卷` |
-| 用户/主控向 Worker 提交新 prompt | 放行，`turn.json` 推进，`busy-state` 变 busy |
-| 迟到的旧回合/旧会话/旧 generation Stop，或读前延迟读到新 token 的旧 Stop | 不触发 `missing_report`（token 不一致 → 线索；token 一致但新回合 working / 原生 turn_active → 原生证据否决） |
-| token 完整一致、`serial_events=true`、无原生活动、未交卷的 idle | `settle_confirm_s` 后 `missing_report`（不等 `stall_timeout_s`）；`serial_events` 非 true 的 harness 只记线索 |
+| Worker 交卷后结束 | 放行 |
+| Claude 执行者 | 仍进 Herdr pane，走 B2 绑定 + B1 pane Worker 模式 |
+| 显式 `session=pane` 的 Grok/Codex 卡 | 现行 pane 路径不变 |
 | 主控派工已 accepted 但同一执行者仍在写 | 被拦，原因含 `status`；`status --all` 退出码 1 |
 | 单卡运行 | 0 新 worktree、0 新分支；合并后 `trellis_gc.py` 删任务 worktree |
 | 单卡运行 accept-run 后改了业务文件或 `.trellis/scripts`、workflow、config、其他任务 | record-unit/cleanup 报 stale，需重新 accept-run |
@@ -424,7 +434,7 @@ cwd `~/Documents/Project/sanctions-radar`，分支 `chore/workflow-v2`（从最�
 | planning / branch=null / branch=main / 无 PR 的 in_progress（含只有空提交） | GC SKIP 并给原因 |
 | 从非默认分支、ahead、落后或分叉的主检出跑 GC `--apply`；区间里有 merge 提交 | 不归档不推送，给原因 |
 | push 失败后再次运行（零候选） | pending 重试并清记录；`git status` 全程干净 |
-| 无头 codex 审核（plan 与 submit 两个入口） | 无新 Herdr 标签页；`published.json` 产生 |
+| 无头执行/审核（codex/grok/cursor；plan 与 submit 两个入口） | 无新 Herdr 标签页；`published.json` 产生；未交卷 → 一次纠正后仍无 → `missing_report` 含 exit_code 与 stdout 尾部；超时 → `headless_timeout`；`cancel` → 进程组被杀且 cancelled 落地；watcher 死 + 进程仍跑 → `resume` 接管同一 pid |
 | 旧 run.json / 旧轮次 | `status`、`collect`、`cleanup` 仍可用 |
 | 合并派工脚本前 | `status --all`（默认只读）退出码 0；accepted + 死 watcher + 同一执行者 working 或 idle 但原生活动时为 1，无论 holder 值；`holder_unsettled` 经 `--settle` 收敛后再只读为 0 |
 | watcher 死后 `cancel` | 执行者 gone/replaced/静止 → 立即 cancelled 且 holder settled，制品与事件同 watcher 路径；执行者仍活 → `cancelling`，`resume` 恢复监督；有 `watcher.stop` 也能落地；并发只落地一次 |
@@ -441,8 +451,12 @@ cwd `~/Documents/Project/sanctions-radar`，分支 `chore/workflow-v2`（从最�
 | 某 harness 拦不住 | A1 记 `unsupported`，`submit` 警告，不假装全绿 |
 | 守卫误拦（预算） | 主控 30 分钟 3 次、Worker Claude 3 次 / Codex、Grok 每回合 1 次；`resume` 清计数；未预期异常 fail-open 且进日志 |
 | marker 残留（合并后没跑 `mark-merged`） | 守卫每次评估都做解除自检；`status --repo` 可见；`mark-merged` 手动清 |
-| pane 绑定竞争 / session 补全 | 锁 + generation + 身份核对；补全只走 `paneguard.fill_session`（`agent_get` 的 pane/terminal/agent/name 四项全等 + Herdr 当前 session 一致），三处一起写、只写 null、冲突不写；清理只清自己的记录 |
-| harness 的 hook 跨事件不串行 / Stop 读到别的回合的 token | B2 消费规则不依赖串行：hook idle 永远只是线索（token 全匹配时把确认窗口从 `stall_timeout_s` 缩到 `settle_confirm_s`），不是 `turn_ended` 来源，原生 `turn_active`/`waiting_on_tool` 永远先否决；`serial_events` 只记录不门控（r6） |
+| pane 绑定残留（Claude Worker pane 被新会话接管而派单未清理） | 绑定四项身份核对（pane/terminal/agent/name）；`accept`/cancel/`cleanup` 清自己的绑定；session 补全延后（§9） |
+| harness 的 hook 跨事件不串行 | r7 不再有活动协议，守卫只读发布制品，不依赖事件顺序 |
+| 无头进程成为孤儿（watcher 死） | 包装进程自成进程组、自写 `process.json` 退出码；`resume` 按 pid+argv 接管；pid 复用按 argv 判 `identity_changed` |
+| 无头续轮丢上下文（取不到 session id） | 新进程 + request 头部指向上一轮报告；`must_fix` 本来就在 request 里 |
+| 无头子进程继承主控 pane 的 `HERDR_*` 环境 | runner 显式剔除；B5 测试断言子进程环境 |
+| Codex/Grok 的 Stop hook 在无头下不触发 | A1 记录；B5 一次纠正兜底，再不交卷 `missing_report` |
 | `finalize_cancel` 提前结算活执行者 | 资格：working/unknown/`query_failed`/`evidence_failed`/原生回合仍活 → 不结算；无原生来源的 harness 只凭 `agent_status` idle ≥ `settle_confirm_s`（`idle_no_evidence`）；幂等占位（pid 已死才接手）+ `completion_recorded` 最后写；`resume` 恢复监督而不是强行落地 |
 | workflow.md 替换后 hook 解析失败 | T1/T2 都用 `inject-workflow-state.py` 的解析函数验证；A2 用 `--create-new` 先看 diff |
 | 模板与项目专有内容混杂 | T1 表明确不上游项；专有内容进 `AGENTS.md` |
@@ -457,19 +471,19 @@ cwd `~/Documents/Project/sanctions-radar`，分支 `chore/workflow-v2`（从最�
 P0  Codex 审计划（contract_review，只读，本文件）→ 主控取舍 → 改计划（r1–r4 + B 卡复审 r5 已完成；r6 起不再开计划审核轮，契约由各卡 code review 在代码上验证）
 S0  主控建 worktree/分支、记基线、遗留派单清理（已做）；每次合并派工脚本前跑门禁
 T1 → T2 → T3 → T4          每张：Grok 执行 → Codex code_review → 主控验收 → 合入模板 workflow-v2
-B0 → B2 → B1 → B4 → B3 → B6 → B5 → (B7)   每张：同上 → 合入 skills-wt/workflow-v2
+B0 → B5 → B2 → B1 → B4 → B3 → B6 → (B7)   每张：同上 → 合入 skills-wt/workflow-v2（r7：B5 先于 B2/B1）
 主控：模板 workflow-v2 → main（PR，沿用仓库习惯），打 v1.6.0；skills workflow-v2 → main（门禁退出码 0 时）
 A1（探针门禁）→ A2 → A3 → A4
 ```
 
-依赖说明：B0 → B1/B2/B6（`is_landed`、`dispatch_settled`、`dispatch_wait_status`、`finalize_cancel`）；B2 → B1（`paneguard.py` 的绑定/活动文件 schema、锁与生产端写入，B1 只消费；B1 交付后复跑 B1+B2 集成测试）；B3 → B6（收尾允许清单与 `parent_acceptance` 语义）；B2 → A1；T4 + tag → A2；A1 + A2 → A3；B 全部合并 → §6「审核卡改无头」；S0 清理 → 合并门禁。T 卡与 B 卡互不依赖，可交错派工（但同一时刻每个仓只有一张执行卡）。
+依赖说明：B0 → B5/B1/B2/B6（`is_landed`、`dispatch_settled`、`dispatch_wait_status`、`finalize_cancel`；B5 在 `dispatch_settled`/`finalize_cancel` 的执行者观察上加 headless 分支）；B5 → B2/B1（`HERDR_DISPATCH_ROUND` 契约、`assignee.session` 分流）；B2 → B1（`paneguard.py` 的绑定文件 schema、锁与生产端写入，B1 只消费；B1 交付后复跑 B1+B2 集成测试）；B3 → B6（收尾允许清单与 `parent_acceptance` 语义）；B2 → A1；T4 + tag → A2；A1 + A2 → A3；B 全部合并 → §6「审核卡改无头」；S0 清理 → 合并门禁。T 卡与 B 卡互不依赖，可交错派工（但同一时刻每个仓只有一张执行卡）。
 
 规则：
 
-- 派工方式：`herdr_dispatch.py submit` 单次派工，`cwd` 与 `allow_write` 按卡面；执行卡 harness `grok`，审核卡 harness `codex`。**审核卡改无头**只在 B 卡全部合并到 skills `main` 之后（用 `~/.skills-manager/skills/herdr-dispatch/scripts/herdr_dispatch.py`）；此前一律 Herdr 标签页。审核卡的 `monitor_paths` 只放被改的仓，不放含 `.codegraph/` 缓存的只读参考仓。
+- 派工方式：`herdr_dispatch.py submit` 单次派工，`cwd` 与 `allow_write` 按卡面；执行卡 harness `grok`，审核卡 harness `codex`。**B5 合入 `skills-wt/workflow-v2` 后**，审核卡与 Grok 执行卡即用候选 CLI 以无头派出（B5 的真实探针就是第一次）；此前一律 Herdr 标签页。审核卡的 `monitor_paths` 只放被改的仓，不放含 `.codegraph/` 缓存的只读参考仓。
 - 候选 CLI：B0 合入 `skills-wt/workflow-v2` 后、合并到 `main` 前，`status --all` 用 `python3 ~/.skills-manager/skills-wt/workflow-v2/herdr-dispatch/scripts/herdr_dispatch.py status --all`（只读命令，读同一个 state home）。
 - 返工：Codex 审核 verdict 为 fail 或主控验收不过 → `reject` 带全部 findings，同一 Grok 会话第 2 轮。
-- 升级到 Opus：第 2 轮仍不过 → `cancel` 该派工 → 等 `status` 显示 assignee settled（旧写锁释放）并 claim 取消完成事件 → `cleanup` 关页 → 新 dispatch_id 派 `claude` 模型 `claude-opus-5-5`（Herdr 标签页；模型 id 以当场 harness 列表核对）带原卡 + 全部 findings，再 Codex 审。
+- 升级到 Opus：第 2 轮仍不过 → `cancel` 该派工 → 等 `status` 显示 assignee settled（旧写锁释放）并 claim 取消完成事件 → `cleanup` 关页 → 新 dispatch_id 派 `claude` 模型 `claude-opus-5-5`（走 pane 路径，§0 #4；模型 id 以当场 harness 列表核对）带原卡 + 全部 findings，再 Codex 审。
 - 验收标准：卡面「验收」全部有证据；测试全绿；diff 只碰卡面文件；提交信息合规。主控自己复跑测试，不只看报告。
 - 合并：主控在各自仓 `git merge --ff-only`；合并派工脚本前按 S0 门禁检查并留 log。
 - 计划变更：执行中发现事实与本计划不符，先改本文件对应卡再派，不口头改要求。
@@ -480,6 +494,32 @@ A1（探针门禁）→ A2 → A3 → A4
 请重点核对：(1) §8「第 4 轮」段每一条是否真正解决了对应 r4 项；(2) B0 第 2 条判定顺序 1–8 是否穷尽且与 `settle_dispatch` 的资格、S0 只读脚本三处一致；`holder_unsettled` 经 `--settle` 是否都能收敛（replaced / attributed / needs_attention+gone），只读路径是否真的零写入；原生证据（`collect_turn_evidence` / `evidence_blocks_settled`）在死 watcher 下是否可用（它依赖 `state.activity_scan`、transcript 等，指出取证失败时的行为）；(3) B0 第 3 条 1–9 顺序：历史 settled 派单、终态在飞、`wakeup_retry_exhausted` 按 `group_event_id` 领取、`primary_wakeup` 的处理，与 B1 第 7 步三分类是否一致，混合派单是否还有漏拦/误拦；(4) B2 第 2 条：idle 改为经 `classify_assignee` 的 `turn_ended` 来源后，是否仍存在绕过原生 `working`/`turn_active`/`waiting_on_tool` 否决的路径；`serial_events` 降级是否可机械实现；读前延迟夹具是否成立；(5) B2 `fill_session` 唯一入口（`agent_get` 四项全等 + Herdr 当前 session 一致、三处一起写、锁顺序）与 B1 第 2 步是否堵住同 terminal 接管与三处分裂；`classify_identity` 不参与补全资格是否有副作用；(6) B3：`trellis_developer` 解析与清单是否与 `add_session.py`/`paths.py:100` 一致；`accept-run` parser/路由/`accept_run` 签名改动是否闭合、`reaccept_requires_reason` 触发条件是否合理；`origin_head` 累计与 tombstone/rename 是否与 `_delivery_corresponds`（`runcmd.py:1852-1880`）相容；(7) T3 `git rev-parse --path-format=absolute --git-path index.lock` 在 linked worktree、主检出、bare origin 三种情况下的输出是否如预期，`--path-format` 在本机 git 版本是否可用；(8) B0 第 5 条 `finalize_cancel`：资格是否与 `handle_cancel` 逐项等价、占位/CAS 是否会双重 finalize 或死锁、`resume`/`cleanup`/`watch_loop` 改动是否闭合；(9) B6 `_units_ready` 共用与 A4 表是否一致；(10) §6 顺序与依赖说明。输出：阻塞项 / 建议项 / 已核对无问题项三段，每条给文件与行号。
 
 ## 8. 审核回应
+
+### r7 设计变更（用户决定，2026-10-01；不是审核轮）
+
+| 项 | 变更 | 理由 |
+| --- | --- | --- |
+| 会话模式 | 执行者与审查者默认无头（`codex exec` / `grok -p` / `cursor-agent -p`），只有主控与 `claude` harness 的 Worker 进 Herdr pane；`assignee.session` 可显式覆盖 | 另起 pane 的收益（现场干预、看 TUI、`agent_get` 状态）在本机用法里很少用到，而成本已经在 B0/B2/B1 的复杂度里显形（身份核对、session 补全、活动协议、Codex cancel 不落地）；进程由自己起之后，pid + 退出码 + 日志就是全部状态 |
+| B5 | 从「无头审核（仅 reviewer）」升格为主路径卡，排到 B0 之后、B2 之前 | 它是 B2/B1 的前置契约（`HERDR_DISPATCH_ROUND`） |
+| B2 | 收窄到 pane 绑定 + 卡面头部；活动协议、状态标签、`fill_session` 延后 | 只剩 Claude Worker 走 pane，不值得为它维护三处同步 |
+| B1 | Worker 模式分无头（环境变量，不核身份）与 pane（四项身份，不比 session）两种绑定来源；`prompt` 事件 Worker 侧不写；marker `task` 用任务目录名（与 T3 r2 对齐） | 同上 |
+| B6 | 不变（它管 worktree，不管窗口）；关窗逻辑的 headless 分支归 B5 | — |
+| B7 | 仅 pane 路径，默认裁剪 | 单回合进程没有中途投递 |
+| A1 | 探针改为：三种主控 harness 的主控侧守卫 + Claude pane Worker + 无头 Worker 的 hook 触发记录；删 session 补全与事件串行探针 | 探针对象随设计变 |
+| B0 | 不变；已验收 | B5 要在 B0 的 `dispatch_settled`/`finalize_cancel` 上加分支 |
+
+### B0 code review r2（`workflow-v2-B0-review-1001` round 2，对 `845d35c`；verdict pass）
+
+B0R-01..06 审核方独立核实已修复（制品四个写入边界、恢复时窗口重试、占位 pid/nonce 归属、`BaseException` 清理各加测；改副本过滤 exhausted 事件后新用例确实失败；`lifecycle/wakeup/gitutil/watcher` 与 `626a82d` 逐字相同；414 OK）。无新阻塞与建议。B0 两个派单已 accept + cleanup；skills worktree `workflow-v2` = `845d35c`。审核过程的一处失误（准备文件写进了 rounds/1/tmp）已在报告披露，不影响代码。
+
+### T3 code review r2（`workflow-v2-T3-review-1001` round 2，对 `53c56b3`；verdict fail）
+
+| 项 | 取舍 | 处理 | 位置 |
+| --- | --- | --- | --- |
+| T3R-07 `_config_scalar` 按标记类型优先（先找 ` #` 再找 `\t#`）而非位置优先：`false<TAB># manual commit # note` 被截到后面的 ` #`，判成未识别 → true，`--apply` 先移动目录再报 `unexpected_archive_commits`（审核方用真实 Trellis 脚本在临时仓复现；Trellis `parse_simple_yaml` 得 `false`） | 采纳 | T3 r3：取两种标记最早出现的索引截断；补 4 个混合注释的真实 `--apply` 反例 + 1 个 `true` 正例 | `trellis_gc.py` `_config_scalar` |
+| T3S-04 main 循环末尾 `if proof is None: task_unknown` 不可达 | 采纳（顺手删除） | T3 r3 同一提交 | `trellis_gc.py` `main` |
+
+其余：T3R-01/02/04/05/06 与 T3S-02 审核方独立核实已修复（24 条既有用例只差目录名前缀；index 用例去掉 env 后确实失败；sanctions-radar 只读复跑与执行者输出逐字一致）。
 
 ### T3 code review r1（`workflow-v2-T3-review-1001`，对 `f037282`；verdict fail）
 
@@ -625,3 +665,6 @@ A1（探针门禁）→ A2 → A3 → A4
 - `status_all` 枚举层不可达的 `evidence_failed` 二次改判（B0S-01）；`test_cancel_finalize.py` 直接/包装对照改为基线字段断言、直接断言事件的 `post_cancel_changes`（B0S-03）。
 - `tests/test_gc.py` 按 git 版本 skip 需要 `merge-tree --write-tree` 的用例并补 `merge_tree_unavailable` 集成路径（T3S-01）；快照用例的集合差异与 PR head fetch 计数断言（T3S-03）。
 - `trellis_gc.py` dry-run 的 fetch / merge-tree 对象重定向到仓外临时 Git 环境（T3R-04 未采纳部分）。
+- B2 活动协议（`activity.json`/`turn.json`/`busy-state.json`）、状态标签 `report-metadata`、`fill_session` 三处同步与 A1 的事件串行探针（r7 延后：只剩 Claude Worker 走 pane）。
+- `claude -p` 无头路径（额度政策定了再说）。
+- B7 转向收件箱（pane 路径）。
