@@ -212,15 +212,17 @@ class Sandbox:
         pr_url: str | None = None,
         children: list[str] | None = None,
         month: str = "2026-09",
+        json_name: str | None = None,
     ) -> Path:
         if archived:
             directory = self.repo / ".trellis" / "tasks" / "archive" / month / name
         else:
             directory = self.repo / ".trellis" / "tasks" / name
         directory.mkdir(parents=True, exist_ok=True)
+        shown = name if json_name is None else json_name
         payload: dict[str, object] = {
-            "id": name,
-            "name": name,
+            "id": shown,
+            "name": shown,
             "branch": branch,
             "base_branch": "main",
             "pr_url": pr_url,
@@ -328,6 +330,16 @@ class Sandbox:
         common = Path(self.git("rev-parse", "--path-format=absolute", "--git-common-dir").stdout.strip())
         return common / "trellis-gc" / "pending-push.json"
 
+    def task_dir_name(self, slug: str) -> tuple[str, str]:
+        """Return ``(directory name, task.json name)``.
+
+        A value that already starts with ``MM-DD-`` is the directory. Otherwise
+        the directory is ``09-01-<slug>`` and the JSON name stays the slug.
+        """
+        if re.fullmatch(r"\d{2}-\d{2}-.+", slug):
+            return slug, slug.split("-", 2)[2]
+        return f"09-01-{slug}", slug
+
     def record_idle_task(
         self,
         name: str,
@@ -339,14 +351,16 @@ class Sandbox:
         old: bool = True,
         push: bool = True,
         config: str | None = "# session_auto_commit: false\n",
-    ) -> None:
+    ) -> str:
         self.install_archiver()
         config_path = self.repo / ".trellis" / "config.yaml"
         if config is not None and not config_path.exists():
             config_path.parent.mkdir(parents=True, exist_ok=True)
             config_path.write_text(config, encoding="utf-8")
+        dir_name, json_name = self.task_dir_name(name)
         self.write_task(
-            name,
+            dir_name,
+            json_name=json_name,
             branch=branch,
             status=status,
             archived=False,
@@ -357,6 +371,7 @@ class Sandbox:
         self.git("commit", "-m", f"record {name}", extra_env=OLD_DATE if old else None)
         if push:
             self.push_main()
+        return dir_name
 
     def land_fast_forward(self, branch: str, filename: str = "feature.txt") -> str:
         self.git("checkout", "-b", branch)
@@ -1164,10 +1179,10 @@ class GarbageCollectorTests(unittest.TestCase):
         self.sandbox.push_main()
         code, stdout, _ = self.sandbox.run_gc("--no-fetch")
         self.assertEqual(code, 0)
-        self.assertIn("[SKIP] nopr: no_pr", stdout)
+        self.assertIn("[SKIP] 09-01-nopr: no_pr", stdout)
         self.assertNotIn("would archive", stdout)
         self.assertTrue(self.sandbox.branch_exists("task/nopr"))
-        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "nopr").is_dir())
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "09-01-nopr").is_dir())
 
     def test_pr_head_name_mismatch_is_skipped(self) -> None:
         oid = self.sandbox.land_fast_forward("task/real")
@@ -1176,7 +1191,7 @@ class GarbageCollectorTests(unittest.TestCase):
         self.sandbox.record_idle_task("real", branch="task/real", pr_url=url)
         code, stdout, _ = self.sandbox.run_gc("--no-fetch")
         self.assertEqual(code, 0)
-        self.assertIn("[SKIP] real: pr_branch_mismatch", stdout)
+        self.assertIn("[SKIP] 09-01-real: pr_branch_mismatch", stdout)
         self.assertNotIn("would archive", stdout)
 
     def test_open_pr_is_not_merged(self) -> None:
@@ -1186,7 +1201,7 @@ class GarbageCollectorTests(unittest.TestCase):
         self.sandbox.record_idle_task("openpr", branch="task/openpr", pr_url=url)
         code, stdout, _ = self.sandbox.run_gc("--no-fetch")
         self.assertEqual(code, 0)
-        self.assertIn("[SKIP] openpr: pr_not_merged", stdout)
+        self.assertIn("[SKIP] 09-01-openpr: pr_not_merged", stdout)
 
     def test_unlanded_pr_head_is_not_landed(self) -> None:
         self.sandbox.git("checkout", "-b", "task/unlanded")
@@ -1200,7 +1215,7 @@ class GarbageCollectorTests(unittest.TestCase):
         self.sandbox.record_idle_task("unlanded", branch="task/unlanded", pr_url=url)
         code, stdout, _ = self.sandbox.run_gc("--no-fetch")
         self.assertEqual(code, 0)
-        self.assertIn("[SKIP] unlanded: not_landed tree_differs", stdout)
+        self.assertIn("[SKIP] 09-01-unlanded: not_landed tree_differs", stdout)
         self.assertNotIn("would archive", stdout)
 
     def test_fast_forward_merged_pr_is_archived(self) -> None:
@@ -1213,16 +1228,16 @@ class GarbageCollectorTests(unittest.TestCase):
         origin_before = self.sandbox.head("origin/main")
         code, dry, _ = self.sandbox.run_gc("--no-fetch")
         self.assertEqual(code, 0)
-        self.assertRegex(dry, self._plan("ff", "pr_merged", "ancestor"))
+        self.assertRegex(dry, self._plan("09-01-ff", "pr_merged", "ancestor"))
         self.assertEqual(self.sandbox.head("origin/main"), origin_before)
         code, applied, _ = self.sandbox.run_gc("--apply", "--no-fetch")
         self.assertEqual(code, 0)
-        self.assertIn("[DONE] archived ff (evidence=pr_merged, proof=ancestor)", applied)
+        self.assertIn("[DONE] archived 09-01-ff (evidence=pr_merged, proof=ancestor)", applied)
         self.assertIn("archived=1", applied)
         month = datetime.now(timezone.utc).strftime("%Y-%m")
-        archived = self.sandbox.repo / ".trellis" / "tasks" / "archive" / month / "ff"
+        archived = self.sandbox.repo / ".trellis" / "tasks" / "archive" / month / "09-01-ff"
         self.assertTrue((archived / "task.json").is_file())
-        self.assertFalse((self.sandbox.repo / ".trellis" / "tasks" / "ff").exists())
+        self.assertFalse((self.sandbox.repo / ".trellis" / "tasks" / "09-01-ff").exists())
         self.assertTrue(self.sandbox.branch_exists("task/ff"))
         self.assertNotEqual(self.sandbox.head("origin/main"), origin_before)
         names = self.sandbox.git(
@@ -1243,10 +1258,10 @@ class GarbageCollectorTests(unittest.TestCase):
         self.sandbox.record_idle_task("merged", branch="task/merged", pr_url=url)
         code, dry, _ = self.sandbox.run_gc("--no-fetch")
         self.assertEqual(code, 0)
-        self.assertRegex(dry, self._plan("merged", "pr_merged", "ancestor"))
+        self.assertRegex(dry, self._plan("09-01-merged", "pr_merged", "ancestor"))
         code, applied, _ = self.sandbox.run_gc("--apply", "--no-fetch")
         self.assertEqual(code, 0)
-        self.assertIn("[DONE] archived merged (evidence=pr_merged, proof=ancestor)", applied)
+        self.assertIn("[DONE] archived 09-01-merged (evidence=pr_merged, proof=ancestor)", applied)
 
     def test_squash_merged_pr_is_archived(self) -> None:
         oid = self.sandbox.land_squash("task/squashed")
@@ -1255,20 +1270,20 @@ class GarbageCollectorTests(unittest.TestCase):
         self.sandbox.record_idle_task("squashed", branch="task/squashed", pr_url=url)
         code, dry, _ = self.sandbox.run_gc("--no-fetch")
         self.assertEqual(code, 0)
-        self.assertRegex(dry, self._plan("squashed", "pr_merged", "tree_equal"))
+        self.assertRegex(dry, self._plan("09-01-squashed", "pr_merged", "tree_equal"))
         code, applied, _ = self.sandbox.run_gc("--apply", "--no-fetch")
         self.assertEqual(code, 0)
-        self.assertIn("[DONE] archived squashed (evidence=pr_merged, proof=tree_equal)", applied)
+        self.assertIn("[DONE] archived 09-01-squashed (evidence=pr_merged, proof=tree_equal)", applied)
 
     def test_completed_task_outside_archive_is_archived(self) -> None:
         self.sandbox.land_fast_forward("task/stuck-done", filename="done.txt")
         self.sandbox.record_idle_task("stuck-done", branch="task/stuck-done", status="completed")
         code, dry, _ = self.sandbox.run_gc("--no-fetch")
         self.assertEqual(code, 0)
-        self.assertRegex(dry, self._plan("stuck-done", "completed", "ancestor"))
+        self.assertRegex(dry, self._plan("09-01-stuck-done", "completed", "ancestor"))
         code, applied, _ = self.sandbox.run_gc("--apply", "--no-fetch")
         self.assertEqual(code, 0)
-        self.assertIn("[DONE] archived stuck-done (evidence=completed, proof=ancestor)", applied)
+        self.assertIn("[DONE] archived 09-01-stuck-done (evidence=completed, proof=ancestor)", applied)
         self.assertTrue(self.sandbox.branch_exists("task/stuck-done"))
 
     def test_completed_task_with_gone_upstream_uses_pr_proof(self) -> None:
@@ -1277,7 +1292,7 @@ class GarbageCollectorTests(unittest.TestCase):
         self.sandbox.record_idle_task("prdone", branch="task/prdone", status="completed")
         code, stdout, _ = self.sandbox.run_gc("--no-fetch")
         self.assertEqual(code, 0)
-        self.assertRegex(stdout, self._plan("prdone", "completed", "pr"))
+        self.assertRegex(stdout, self._plan("09-01-prdone", "completed", "pr"))
 
     def test_active_child_blocks_archive(self) -> None:
         oid = self.sandbox.land_fast_forward("task/parent")
@@ -1305,11 +1320,11 @@ class GarbageCollectorTests(unittest.TestCase):
         url = self.sandbox.pr_url(22)
         self.sandbox.set_pr(url, "MERGED", oid, headRefName="task/dirtydir")
         self.sandbox.record_idle_task("dirtydir", branch="task/dirtydir", pr_url=url)
-        task_file = self.sandbox.repo / ".trellis" / "tasks" / "dirtydir" / "task.json"
+        task_file = self.sandbox.repo / ".trellis" / "tasks" / "09-01-dirtydir" / "task.json"
         task_file.write_text(task_file.read_text(encoding="utf-8") + "\n", encoding="utf-8")
         code, stdout, _ = self.sandbox.run_gc("--no-fetch")
         self.assertEqual(code, 0)
-        self.assertIn("[SKIP] dirtydir: dirty_task_dir", stdout)
+        self.assertIn("[SKIP] 09-01-dirtydir: dirty_task_dir", stdout)
         self.assertNotIn("would archive", stdout)
 
     def test_guard_marker_blocks_archive(self) -> None:
@@ -1320,7 +1335,7 @@ class GarbageCollectorTests(unittest.TestCase):
         self.sandbox.write_guard("marked", "task/marked", phase="hold")
         code, stdout, _ = self.sandbox.run_gc("--no-fetch")
         self.assertEqual(code, 0)
-        self.assertIn("[SKIP] marked: guard_active", stdout)
+        self.assertIn("[SKIP] 09-01-marked: guard_active", stdout)
         self.assertNotIn("would archive", stdout)
 
     def test_worktree_on_task_branch_blocks_archive(self) -> None:
@@ -1332,7 +1347,7 @@ class GarbageCollectorTests(unittest.TestCase):
         self.sandbox.git("worktree", "add", str(wt), "task/busy")
         code, stdout, _ = self.sandbox.run_gc("--no-fetch")
         self.assertEqual(code, 0)
-        self.assertIn("[SKIP] busy: worktree_active", stdout)
+        self.assertIn("[SKIP] 09-01-busy: worktree_active", stdout)
         self.assertNotIn("would archive", stdout)
 
     def test_recent_task_is_skipped(self) -> None:
@@ -1342,7 +1357,7 @@ class GarbageCollectorTests(unittest.TestCase):
         self.sandbox.record_idle_task("fresh", branch="task/fresh", pr_url=url, old=False)
         code, stdout, _ = self.sandbox.run_gc("--no-fetch")
         self.assertEqual(code, 0)
-        self.assertIn("[SKIP] fresh: recent", stdout)
+        self.assertIn("[SKIP] 09-01-fresh: recent", stdout)
         self.assertNotIn("would archive", stdout)
 
     def test_task_directory_without_history_is_skipped(self) -> None:
@@ -1406,7 +1421,7 @@ class GarbageCollectorTests(unittest.TestCase):
             self.assertEqual(code, 0, stdout)
             self.assertNotIn("would archive", stdout)
             self.assertNotIn("[PLAN] would archive", stdout)
-        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "idleoff").is_dir())
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "09-01-idleoff").is_dir())
 
     def test_sync_refuses_when_not_default_branch(self) -> None:
         oid = self.sandbox.land_fast_forward("task/side")
@@ -1420,7 +1435,7 @@ class GarbageCollectorTests(unittest.TestCase):
         self.assertIn("[WARN] sync precondition failed: not_default_branch", stdout)
         self.assertNotIn("[DONE] archived", stdout)
         self.assertEqual(self.sandbox.head("origin/main"), origin)
-        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "side").is_dir())
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "09-01-side").is_dir())
 
     def test_sync_refuses_from_linked_worktree(self) -> None:
         oid = self.sandbox.land_fast_forward("task/linked")
@@ -1435,7 +1450,7 @@ class GarbageCollectorTests(unittest.TestCase):
         self.assertIn("[WARN] sync precondition failed: not_main_checkout", stdout)
         self.assertNotIn("[DONE] archived", stdout)
         self.assertEqual(self.sandbox.head("origin/main"), origin)
-        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "linked").is_dir())
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "09-01-linked").is_dir())
 
     def test_sync_refuses_unknown_local_commit(self) -> None:
         oid = self.sandbox.land_fast_forward("task/ahead")
@@ -1452,7 +1467,7 @@ class GarbageCollectorTests(unittest.TestCase):
         self.assertIn("[WARN] recovery:", stdout)
         self.assertNotIn("[DONE] archived", stdout)
         self.assertEqual(self.sandbox.head("origin/main"), origin)
-        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "ahead").is_dir())
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "09-01-ahead").is_dir())
 
     def test_sync_refuses_when_behind_remote(self) -> None:
         oid = self.sandbox.land_fast_forward("task/behind")
@@ -1468,7 +1483,7 @@ class GarbageCollectorTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("[WARN] sync precondition failed: behind_remote", stdout)
         self.assertNotIn("[DONE] archived", stdout)
-        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "behind").is_dir())
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "09-01-behind").is_dir())
 
     def test_sync_refuses_when_diverged(self) -> None:
         oid = self.sandbox.land_fast_forward("task/diverged")
@@ -1490,7 +1505,7 @@ class GarbageCollectorTests(unittest.TestCase):
         self.assertNotIn("[DONE] archived", stdout)
         published = set(self.sandbox.git("rev-list", "origin/main").stdout.split())
         self.assertNotIn(local, published)
-        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "diverged").is_dir())
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "09-01-diverged").is_dir())
 
     def test_sync_refuses_dirty_worktree(self) -> None:
         oid = self.sandbox.land_fast_forward("task/dirtyrepo")
@@ -1504,7 +1519,7 @@ class GarbageCollectorTests(unittest.TestCase):
         self.assertIn("[WARN] sync precondition failed: dirty", stdout)
         self.assertNotIn("[DONE] archived", stdout)
         self.assertEqual(self.sandbox.head("origin/main"), origin)
-        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "dirtyrepo").is_dir())
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "09-01-dirtyrepo").is_dir())
 
     def test_auto_commit_disabled_skips_archive(self) -> None:
         oid = self.sandbox.land_fast_forward("task/nocommit")
@@ -1519,10 +1534,10 @@ class GarbageCollectorTests(unittest.TestCase):
         origin = self.sandbox.head("origin/main")
         code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
         self.assertEqual(code, 0)
-        self.assertIn("[SKIP] nocommit: auto_commit_disabled", stdout)
+        self.assertIn("[SKIP] 09-01-nocommit: auto_commit_disabled", stdout)
         self.assertNotIn("[DONE] archived", stdout)
         self.assertEqual(self.sandbox.head("origin/main"), origin)
-        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "nocommit").is_dir())
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "09-01-nocommit").is_dir())
 
     def test_archive_command_failure_stops(self) -> None:
         oid = self.sandbox.land_fast_forward("task/failarch")
@@ -1536,10 +1551,10 @@ class GarbageCollectorTests(unittest.TestCase):
             extra_env={"TRELLIS_GC_TASK_FAIL": "1"},
         )
         self.assertEqual(code, 1)
-        self.assertIn("[WARN] archive failarch failed", stdout)
+        self.assertIn("[WARN] archive 09-01-failarch failed", stdout)
         self.assertNotIn("[DONE] archived", stdout)
         self.assertEqual(self.sandbox.head("origin/main"), origin)
-        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "failarch").is_dir())
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "09-01-failarch").is_dir())
         self.assertFalse(self.sandbox.pending_path().exists())
 
     def test_two_parent_pending_commit_is_not_pushed(self) -> None:
@@ -1597,7 +1612,7 @@ class GarbageCollectorTests(unittest.TestCase):
         self.assertEqual(len(ahead), 2)
         self.assertFalse(self.sandbox.pending_path().exists())
         month = datetime.now(timezone.utc).strftime("%Y-%m")
-        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "archive" / month / "extra").is_dir())
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "archive" / month / "09-01-extra").is_dir())
 
     def test_archive_commit_touching_business_file_is_not_pushed(self) -> None:
         oid = self.sandbox.land_fast_forward("task/biz")
@@ -1628,7 +1643,7 @@ class GarbageCollectorTests(unittest.TestCase):
         origin = self.sandbox.head("origin/main")
         code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
         self.assertEqual(code, 1)
-        self.assertIn("[DONE] archived retry", stdout)
+        self.assertIn("[DONE] archived 09-01-retry", stdout)
         self.assertIn("[WARN] pending push", stdout)
         self.assertIn("pending_push=1", stdout)
         self.assertTrue(self.sandbox.pending_path().is_file())
@@ -1674,3 +1689,187 @@ class GarbageCollectorTests(unittest.TestCase):
             json.loads(self.sandbox.pending_path().read_text(encoding="utf-8"))["commits"],
             ["abc123"],
         )
+
+    def _prepare_archivable(self, box: Sandbox, slug: str, config: str | None, number: int) -> str:
+        branch = f"task/{slug}"
+        oid = box.land_fast_forward(branch)
+        url = box.pr_url(number)
+        box.set_pr(url, "MERGED", oid, headRefName=branch)
+        return box.record_idle_task(slug, branch=branch, pr_url=url, config=config)
+
+    def test_dated_directory_name_is_archived(self) -> None:
+        self.sandbox.land_fast_forward("task/dated")
+        dir_name = self.sandbox.record_idle_task(
+            "09-01-dated",
+            branch="task/dated",
+            status="completed",
+        )
+        self.assertEqual(dir_name, "09-01-dated")
+        payload = json.loads(
+            (self.sandbox.repo / ".trellis" / "tasks" / "09-01-dated" / "task.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(payload["name"], "dated")
+        code, dry, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0, dry)
+        self.assertRegex(dry, self._plan("09-01-dated", "completed", "ancestor"))
+        self.assertNotIn("no_history", dry)
+        code, applied, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0, applied)
+        self.assertIn("[DONE] archived 09-01-dated", applied)
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
+        self.assertTrue(
+            (self.sandbox.repo / ".trellis" / "tasks" / "archive" / month / "09-01-dated").is_dir()
+        )
+        self.assertFalse((self.sandbox.repo / ".trellis" / "tasks" / "09-01-dated").exists())
+
+    def test_completed_child_directory_lets_parent_archive(self) -> None:
+        self.sandbox.land_fast_forward("task/parent-ok")
+        self.sandbox.install_archiver()
+        self.sandbox.write_task(
+            "09-01-parent",
+            json_name="parent",
+            branch="task/parent-ok",
+            status="completed",
+            children=["09-01-child"],
+        )
+        self.sandbox.write_task(
+            "09-01-child",
+            json_name="child",
+            branch=None,
+            status="completed",
+        )
+        self.sandbox.git("add", ".trellis")
+        self.sandbox.git("commit", "-m", "record parent", extra_env=OLD_DATE)
+        self.sandbox.push_main()
+        code, dry, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0, dry)
+        self.assertRegex(dry, self._plan("09-01-parent", "completed", "ancestor"))
+        self.assertNotIn("children_active", dry)
+        code, applied, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0, applied)
+        self.assertIn("[DONE] archived 09-01-parent", applied)
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "09-01-child").is_dir())
+
+    def test_in_progress_child_directory_blocks_parent(self) -> None:
+        self.sandbox.land_fast_forward("task/parent-busy")
+        self.sandbox.install_archiver()
+        self.sandbox.write_task(
+            "09-01-parent",
+            json_name="parent",
+            branch="task/parent-busy",
+            status="completed",
+            children=["09-01-child"],
+        )
+        self.sandbox.write_task(
+            "09-01-child",
+            json_name="child",
+            branch="task/child-busy",
+            status="in_progress",
+        )
+        self.sandbox.git("add", ".trellis")
+        self.sandbox.git("commit", "-m", "record parent", extra_env=OLD_DATE)
+        self.sandbox.push_main()
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0, stdout)
+        self.assertIn("[SKIP] 09-01-parent: children_active", stdout)
+        self.assertNotIn("would archive", stdout)
+        self.assertTrue((self.sandbox.repo / ".trellis" / "tasks" / "09-01-parent").is_dir())
+
+    def test_dirty_dated_directory_is_skipped(self) -> None:
+        self.sandbox.land_fast_forward("task/dateddirt")
+        dir_name = self.sandbox.record_idle_task(
+            "09-01-dateddirt",
+            branch="task/dateddirt",
+            status="completed",
+        )
+        self.assertEqual(dir_name, "09-01-dateddirt")
+        notes = self.sandbox.repo / ".trellis" / "tasks" / dir_name / "notes.md"
+        notes.write_text("dirty\n", encoding="utf-8")
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0, stdout)
+        self.assertIn(f"[SKIP] {dir_name}: dirty_task_dir", stdout)
+        self.assertNotIn("would archive", stdout)
+        self.assertNotIn("no_history", stdout)
+
+    def test_guard_matches_task_directory_name(self) -> None:
+        self.sandbox.land_fast_forward("task/datedguard")
+        dir_name = self.sandbox.record_idle_task(
+            "09-01-datedguard",
+            branch="task/datedguard",
+            status="completed",
+        )
+        self.sandbox.write_guard(dir_name, "task/someone-else")
+        code, stdout, _ = self.sandbox.run_gc("--no-fetch")
+        self.assertEqual(code, 0, stdout)
+        self.assertIn(f"[SKIP] {dir_name}: guard_active", stdout)
+        self.assertNotIn("would archive", stdout)
+
+    def test_false_config_aliases_skip_archive(self) -> None:
+        samples = (
+            "session_auto_commit: false # manually commit\n",
+            'session_auto_commit: "false"\n',
+            "session_auto_commit: False\n",
+            "session_auto_commit: no\n",
+            "session_auto_commit: off\n",
+            "session_auto_commit: 0\n",
+            "session_auto_commit: false\t# note\n",
+        )
+        for index, config in enumerate(samples):
+            with self.subTest(config=config):
+                box = self.sandbox if index == 0 else Sandbox()
+                if box is not self.sandbox:
+                    self.addCleanup(box.cleanup)
+                dir_name = self._prepare_archivable(box, "alias", config, 70)
+                origin = box.head("origin/main")
+                code, stdout, _ = box.run_gc(
+                    "--apply",
+                    "--no-fetch",
+                    extra_env={"TRELLIS_GC_TASK_FAIL": "1"},
+                )
+                self.assertEqual(code, 0, stdout)
+                self.assertIn(f"[SKIP] {dir_name}: auto_commit_disabled", stdout)
+                self.assertNotIn("[DONE] archived", stdout)
+                self.assertNotIn("[WARN] archive", stdout)
+                self.assertEqual(box.head("origin/main"), origin)
+                self.assertTrue((box.repo / ".trellis" / "tasks" / dir_name).is_dir())
+                month = datetime.now(timezone.utc).strftime("%Y-%m")
+                self.assertFalse(
+                    (box.repo / ".trellis" / "tasks" / "archive" / month / dir_name).exists()
+                )
+
+    def test_commented_indented_and_missing_config_still_archives(self) -> None:
+        samples = (
+            "# session_auto_commit: false\n",
+            "  session_auto_commit: false\n",
+            None,
+            "developer: test\n",
+        )
+        for index, config in enumerate(samples, start=80):
+            with self.subTest(config=config):
+                box = Sandbox()
+                self.addCleanup(box.cleanup)
+                dir_name = self._prepare_archivable(box, f"keep{index}", config, index)
+                origin = box.head("origin/main")
+                code, stdout, _ = box.run_gc("--apply", "--no-fetch")
+                self.assertEqual(code, 0, stdout)
+                self.assertIn(f"[DONE] archived {dir_name}", stdout)
+                self.assertNotIn("auto_commit_disabled", stdout)
+                self.assertNotEqual(box.head("origin/main"), origin)
+                self.assertFalse((box.repo / ".trellis" / "tasks" / dir_name).exists())
+
+    def test_unrecognized_config_warns_and_archives(self) -> None:
+        dir_name = self._prepare_archivable(
+            self.sandbox,
+            "maybe",
+            "session_auto_commit: maybe\n",
+            90,
+        )
+        code, stdout, _ = self.sandbox.run_gc("--apply", "--no-fetch")
+        self.assertEqual(code, 0, stdout)
+        self.assertIn(
+            "[WARN] session_auto_commit: unrecognized value maybe, treating as true",
+            stdout,
+        )
+        self.assertIn(f"[DONE] archived {dir_name}", stdout)

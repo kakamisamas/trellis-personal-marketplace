@@ -44,6 +44,7 @@ class WorktreeInfo:
 @dataclass(frozen=True)
 class TaskRecord:
     name: str
+    dir_name: str
     directory: Path
     archived: bool
     status: str
@@ -271,6 +272,7 @@ def _read_task(path: Path, *, archived: bool) -> TaskRecord | None:
                 children.append(item["name"])
     return TaskRecord(
         name=name,
+        dir_name=path.parent.name,
         directory=path.parent,
         archived=archived,
         status=status if isinstance(status, str) else "",
@@ -458,6 +460,26 @@ def removal_target(branch: str, worktree: str | None) -> str:
     return f"local branch {branch}"
 
 
+_TRUE_CONFIG_VALUES = {"true", "yes", "1", "on"}
+_FALSE_CONFIG_VALUES = {"false", "no", "0", "off"}
+
+
+def _config_scalar(raw_value: str) -> str:
+    """Drop a trailing comment, then paired quotes, and lowercase the scalar."""
+    value = raw_value
+    for marker in (" #", "\t#"):
+        index = value.find(marker)
+        if index != -1:
+            value = value[:index]
+            break
+    value = value.strip()
+    if not value or value.startswith("#"):
+        return ""
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+    return value.strip().lower()
+
+
 def session_auto_commit_enabled(main_checkout: str) -> bool:
     path = Path(main_checkout) / ".trellis" / "config.yaml"
     if not path.is_file():
@@ -470,14 +492,21 @@ def session_auto_commit_enabled(main_checkout: str) -> bool:
         if not raw or raw[0].isspace() or raw.lstrip().startswith("#"):
             continue
         if raw.startswith("session_auto_commit:"):
-            value = raw.split(":", 1)[1].strip().lower()
-            return value not in {"false", "no", "0", "off"}
+            value = _config_scalar(raw.split(":", 1)[1])
+            if not value or value in _TRUE_CONFIG_VALUES:
+                return True
+            if value in _FALSE_CONFIG_VALUES:
+                return False
+            print(
+                f"[WARN] session_auto_commit: unrecognized value {value}, treating as true"
+            )
+            return True
     return True
 
 
-def task_age_days(main_checkout: str, name: str) -> int | None:
+def task_age_days(main_checkout: str, dir_name: str) -> int | None:
     result = run(
-        ["git", "log", "-1", "--format=%ct", "--", f".trellis/tasks/{name}"],
+        ["git", "log", "-1", "--format=%ct", "--", f".trellis/tasks/{dir_name}"],
         cwd=main_checkout,
     )
     if result.returncode != 0 or not result.stdout:
@@ -489,8 +518,8 @@ def task_age_days(main_checkout: str, name: str) -> int | None:
     return int((time.time() - committed) // 86400)
 
 
-def child_is_settled(records: Sequence[TaskRecord], name: str) -> bool:
-    matches = [record for record in records if record.name == name]
+def child_is_settled(records: Sequence[TaskRecord], dir_name: str) -> bool:
+    matches = [record for record in records if record.dir_name == dir_name]
     if not matches:
         return False
     if any(not record.archived and record.status not in {"completed", "archived"} for record in matches):
@@ -498,9 +527,13 @@ def child_is_settled(records: Sequence[TaskRecord], name: str) -> bool:
     return any(record.archived or record.status in {"completed", "archived"} for record in matches)
 
 
-def guard_matches_task(markers: Sequence[dict[str, object]], name: str, branch: str | None) -> bool:
+def guard_matches_task(
+    markers: Sequence[dict[str, object]],
+    dir_name: str,
+    branch: str | None,
+) -> bool:
     for marker in markers:
-        if marker.get("task") == name:
+        if marker.get("task") == dir_name:
             return True
         if branch and marker.get("branch") == branch:
             return True
@@ -661,23 +694,23 @@ def select_archive_candidates(
 ) -> tuple[list[ArchiveCandidate], list[tuple[str, str]]]:
     chosen: list[ArchiveCandidate] = []
     skipped: list[tuple[str, str]] = []
-    active = sorted((record for record in records if not record.archived), key=lambda record: record.name)
+    active = sorted((record for record in records if not record.archived), key=lambda record: record.dir_name)
     for record in active:
         if record.status == "planning":
-            skipped.append((record.name, "planning"))
+            skipped.append((record.dir_name, "planning"))
             continue
         if not record.branch:
-            skipped.append((record.name, "branch_missing"))
+            skipped.append((record.dir_name, "branch_missing"))
             continue
         if record.branch == default_branch:
-            skipped.append((record.name, "branch_is_default"))
+            skipped.append((record.dir_name, "branch_is_default"))
             continue
         evidence = ""
         proof = ""
         if record.status == "completed":
             evidence = "completed"
             if run(["git", "rev-parse", "--verify", "--quiet", f"refs/heads/{record.branch}"], cwd=root).returncode != 0:
-                skipped.append((record.name, "branch_missing"))
+                skipped.append((record.dir_name, "branch_missing"))
                 continue
             upstream, tracking = upstream_tracking(root, record.branch)
             found, detail = prove_content(
@@ -692,28 +725,28 @@ def select_archive_candidates(
                 merge_tree_ok=merge_tree_ok,
             )
             if found not in {"pr", "ancestor", "tree_equal"}:
-                skipped.append((record.name, f"not_landed {detail}".strip()))
+                skipped.append((record.dir_name, f"not_landed {detail}".strip()))
                 continue
             proof = found
         elif record.status == "in_progress":
             if not record.pr_url:
-                skipped.append((record.name, "no_pr"))
+                skipped.append((record.dir_name, "no_pr"))
                 continue
             if not has_gh:
-                skipped.append((record.name, "pr_not_merged"))
+                skipped.append((record.dir_name, "pr_not_merged"))
                 continue
             _view, payload = read_pr_json(record.pr_url, root, "state,headRefName,headRefOid")
             state = payload.get("state") if payload else None
             head_name = payload.get("headRefName") if payload else None
             head_oid = payload.get("headRefOid") if payload else None
             if state != "MERGED" or not isinstance(head_oid, str):
-                skipped.append((record.name, "pr_not_merged"))
+                skipped.append((record.dir_name, "pr_not_merged"))
                 continue
             if head_name != record.branch:
-                skipped.append((record.name, "pr_branch_mismatch"))
+                skipped.append((record.dir_name, "pr_branch_mismatch"))
                 continue
             if not ensure_pr_head(root, head_oid, record.pr_url, no_fetch=no_fetch):
-                skipped.append((record.name, "not_landed head_unavailable"))
+                skipped.append((record.dir_name, "not_landed head_unavailable"))
                 continue
             upstream, tracking = upstream_tracking(root, record.branch)
             local = run(["git", "rev-parse", f"refs/heads/{record.branch}"], cwd=root)
@@ -722,37 +755,37 @@ def select_archive_candidates(
             else:
                 found, detail = prove_sha(root, head_oid, default_branch, merge_tree_ok=merge_tree_ok)
                 if found not in {"ancestor", "tree_equal"}:
-                    skipped.append((record.name, f"not_landed {detail}".strip()))
+                    skipped.append((record.dir_name, f"not_landed {detail}".strip()))
                     continue
                 proof = found
             evidence = "pr_merged"
         else:
-            skipped.append((record.name, "status_unsupported"))
+            skipped.append((record.dir_name, "status_unsupported"))
             continue
         if any(not child_is_settled(records, child) for child in record.children):
-            skipped.append((record.name, "children_active"))
+            skipped.append((record.dir_name, "children_active"))
             continue
-        age = task_age_days(main_checkout, record.name)
+        age = task_age_days(main_checkout, record.dir_name)
         if age is None:
-            skipped.append((record.name, "no_history"))
+            skipped.append((record.dir_name, "no_history"))
             continue
         if age < idle_days:
-            skipped.append((record.name, "recent"))
+            skipped.append((record.dir_name, "recent"))
             continue
         if record.branch in worktree_by_branch:
-            skipped.append((record.name, "worktree_active"))
+            skipped.append((record.dir_name, "worktree_active"))
             continue
         status = run(
-            ["git", "status", "--porcelain", "--", f".trellis/tasks/{record.name}"],
+            ["git", "status", "--porcelain", "--", f".trellis/tasks/{record.dir_name}"],
             cwd=main_checkout,
         )
         if status.returncode != 0 or status.stdout:
-            skipped.append((record.name, "dirty_task_dir"))
+            skipped.append((record.dir_name, "dirty_task_dir"))
             continue
-        if guard_matches_task(markers, record.name, record.branch):
-            skipped.append((record.name, "guard_active"))
+        if guard_matches_task(markers, record.dir_name, record.branch):
+            skipped.append((record.dir_name, "guard_active"))
             continue
-        chosen.append(ArchiveCandidate(record.name, age, evidence, proof))
+        chosen.append(ArchiveCandidate(record.dir_name, age, evidence, proof))
     return chosen, skipped
 
 
@@ -814,9 +847,9 @@ def push_default(root: str, default_branch: str) -> CommandResult:
     return run(["git", "push", "origin", default_branch], cwd=root)
 
 
-def run_archive(main_checkout: str, name: str) -> CommandResult:
+def run_archive(main_checkout: str, dir_name: str) -> CommandResult:
     return run(
-        ["python3", ".trellis/scripts/task.py", "archive", name, "--skip-branch-validation"],
+        ["python3", ".trellis/scripts/task.py", "archive", dir_name, "--skip-branch-validation"],
         cwd=main_checkout,
     )
 
