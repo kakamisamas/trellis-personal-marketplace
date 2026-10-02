@@ -21,6 +21,7 @@ It keeps the native planning and quality gates and adds these behaviors:
   PR's product diff, requires every finding to be fixed or rejected with
   evidence, and persists the result in that pull-request body; a later PR in
   the same task is a new review, not a deferred whole-task review;
+- Review findings are triaged by the controller (reject, adopt, accept risk, defer, back to design); each reviewed object gets at most 3 review verdicts, and fixes have a cumulative size budget.
 - planning and spec updates consult an optional architecture baseline.
 
 The template does not replace or modify Trellis's `trellis-finish-work` skill.
