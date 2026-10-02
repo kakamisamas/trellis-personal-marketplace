@@ -388,6 +388,8 @@ cwd `~/Documents/Project/sanctions-radar`，分支 `chore/workflow-v2`（从最�
 
 前置：A1、A2 完成。新 Herdr 标签页起一个 Grok 主控（用户平时的主控之一），在 sanctions-radar 走一个极小的真实任务（例如 `README.md` 补一句 workflow v2 说明）：规划 → 「开始」→ 观察它不在报告后停下，一路到 squash 合并与 GC。记录：是否被守卫拦过、拦的原因是否正确、marker 是否在合并后消失、最终 worktree/分支是否清干净。同样流程再用 Claude 主控跑一次（用「开始，合并前停」验证暂停、`resume`、继续合并）。任一失败 → 回到对应 B/T 卡返工。
 
+**完成记录（2026-10-02，主控观察）：** 两轮都在 sanctions-radar 主检出新开 Herdr 标签页、各做一个 5 行文档改动。(1) Grok 主控（tab w13:t12）：规划 4 分钟后停在 planning 等「开始」；「开始」→ `after_start` hook 写 marker（pane 正确、phase started）→ 归档 → PR #121 CI 绿 → squash `97e930b` → worktree/本地分支/远程分支全无、marker 消失、GC dry-run 不变；守卫全程 `block_log` 为空（主控没有在报告后试图停）。(2) Claude 主控（tab w13:t13）：「开始，合并前停」→ marker `pause_before_merge=true`；首轮 CI 挂（#121 的测试把文档全文锁死，trellis-check 对纯文档改动没跑 pytest）→ 主控判为任务内失败自行修测试重推 → 绿 → 读到暂停标志后 `stop --reason` 停下并给 PR 链接（守卫未拦）；「继续」→ `resume` → squash `719486c` → 清理同上。两轮都没有被守卫拦，说明「报告后不停」已成为主控默认行为；拦截路径在 A1 探针里已单独验证。摩擦与处置：`mark-merged` 要 `TASK_JSON_PATH`（skills main `cbbe648` 改为回退到本 pane / cwd 仓库的 marker，633 测试 OK）；CodeGraph prepare 重复追加 `/.codegraph/`、1.4 的 `task.py start <绝对路径>` 被 Trellis 拒绝、`gh pr merge --delete-branch` 已把 task worktree 删掉导致 3.5 第 8 步 `git -C` 报错——三项在模板 v1.6.1（PR #18，squash `c55f5fe`，tag 已打，release 已发）修掉，sanctions-radar 以 PR #123 升到 v1.6.1。Trellis 自身的 `task.py archive` 自动提交 WARN（任务目录归档前从未进 git）记入 §9。主控失误一次：先在未对齐的本地 main 上打了 `v1.6.1` 并推送，1 分钟内删除远端 tag、对齐 `origin/main` 后重打；raw.githubusercontent 缓存了错误的 `setup.sh` 几分钟，下游安装改用 tag 内容的本地副本。
+
 #### A4 残留清理（需用户看一眼再动手）
 
 `python3 scripts/trellis_gc.py --archive-idle-days 7` 的 dry-run 输出给用户。按 §1 事实的**现时**预期：任务归档候选 0 个——`08-31`、`09-03` SKIP `planning`（且有 children），`09-10` SKIP `branch_is_default`，`09-13` SKIP `no_pr`（`pr_url=null`；其 `feat/event-source-translation` 本地 ref 也已不存在）；`task/*` 残留按生命周期证据 + 内容证明判定；4 个卡片 worktree（enf-0926 E1–E3、sr-empty-days-20260920-A）GC 只 INFO，由 `herdr_dispatch.py run cleanup` 按 B6 判定；按 B6 门禁与 Codex r4 只读核对的事实，**现时预期全部 keep**：
@@ -398,6 +400,8 @@ cwd `~/Documents/Project/sanctions-radar`，分支 `chore/workflow-v2`（从最�
 | sr-empty-days-20260920 A | 干净；live == accepted `8cf26c6`；无 parent_acceptance、无 unit、登记的 integration 目录不存在 | keep（缺父验收/unit/integration） |
 
 要让它们被清掉只有两条路，都由用户决定：(i) 主控用 `is_landed(live_head, origin/main)` 给出证据后，用户授权手动 `git worktree remove` + `git branch -D`（在 B6 门禁之外的人工操作，逐个列出）；(ii) 保留。实施时以新鲜 dry-run 为准，不把 task.json 的 branch 字符串当存在性证明。用户确认后 `--apply` / `run cleanup --apply` / 手动删除。这是本计划唯一需要用户确认的破坏性步骤。
+
+**完成记录（2026-10-02，用户 10-02 的「后续涉及到授权均授权」覆盖本步；只删有证据的项）：** 新鲜 dry-run 与 §1 预期一致（归档候选 0；`task/*` 全 SKIP）。证据 = herdr `is_landed` + 「分支 tip == PR head 且 tip 树 == squash 提交树」。已删：模板本地+远端 `workflow-v2`（树 == v1.6.0）；skills `skills-wt/workflow-v2`、`skills-wt/workflow-v2-b3b6` 与两分支（已并入 main）；sanctions-radar `task/09-05-bot-heartbeat`（main 祖先；worktree 唯一脏项是与 main 已跟踪副本逐字相同的未提交归档目录，`--force` 删）、worktree `09-26-enforcement-cases`（分支 `fix/enforcement-backfill-gaps`，PR #98 已合并、树相同、干净）与分支 `task/09-26-enforcement-cases`（PR #87，树相同）、enf-0926 E1/E2/E3（PR #82/#86/#83 已合并、树相同、干净）与 `run/enf-0926/integration`（`tree_equal`、干净）——卡片/集成 worktree 按路径 (i) 手动删，`run cleanup enf-0926 --apply` 随后记为 `already_removed`。之后 `trellis_gc.py --apply`：`removed=0 archived=0 skipped=5 managed_by_dispatch=2`。**保留、等用户决定**：worktree `09-20-forward-incomplete-investigation`（分支是 main 祖先，但 worktree 里有 7 个从未提交的规划/研究文件，main 没有）；`card/sr-empty-days-20260920/A`（无 PR，`is_landed` conflict）；非计划分支 `card/sidebar-pill-revert/A`、`pr102`、`prototype/09-25-tracking-wall`（无 PR）、`chore/archive-enforcement-cases`（PR #88 已合并但树 ≠ squash）、`docs/enforcement-routine-no-skill`（PR #90 已合并、树相同、无 worktree）；已合并 PR 的远端分支（仓库未开 delete_branch_on_merge）；主检出未跟踪的 `scratchpad/handoff-herdr-dispatch-rework.md`。
 
 ## 4. 验证矩阵
 
@@ -750,3 +754,4 @@ B0R-01..06 审核方独立核实已修复（制品四个写入边界、恢复时
 - `status` 的 headless 格子消费 `assignee_liveness`/`round_members`，wrapper 已退出但残组仍活时显示 `group_alive`（BS-03）。
 - B7 转向收件箱（pane 路径）。
 - sanctions-radar `.github/workflows/pr-gate.yml` 换成 v1.6.0 的 `trellis_diff.py --check`（3500 行；现为项目自有 4000 行 awk gate，installer `[MANUAL]`），以及 `.github/skills/trellis-setup/SKILL.md`（installer `[PLAN]`，未装）（A2 验收时发现）。
+- Trellis 0.6.17 `task.py archive` 的自动提交在任务目录归档前从未进 git 时报 `pathspec did not match`（A3 Claude 轮，主控手动补提交）；属上游 Trellis，可在 3.4 第 5 步前要求先把任务目录提交一次。
