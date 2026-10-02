@@ -401,6 +401,8 @@ cwd `~/Documents/Project/sanctions-radar`，分支 `chore/workflow-v2`（从最�
 
 要让它们被清掉只有两条路，都由用户决定：(i) 主控用 `is_landed(live_head, origin/main)` 给出证据后，用户授权手动 `git worktree remove` + `git branch -D`（在 B6 门禁之外的人工操作，逐个列出）；(ii) 保留。实施时以新鲜 dry-run 为准，不把 task.json 的 branch 字符串当存在性证明。用户确认后 `--apply` / `run cleanup --apply` / 手动删除。这是本计划唯一需要用户确认的破坏性步骤。
 
+**完成记录（2026-10-02，用户 10-02 的「后续涉及到授权均授权」覆盖本步；只删有证据的项）：** 新鲜 dry-run 与 §1 预期一致（归档候选 0；`task/*` 全 SKIP）。证据 = herdr `is_landed` + 「分支 tip == PR head 且 tip 树 == squash 提交树」。已删：模板本地+远端 `workflow-v2`（树 == v1.6.0）；skills `skills-wt/workflow-v2`、`skills-wt/workflow-v2-b3b6` 与两分支（已并入 main）；sanctions-radar `task/09-05-bot-heartbeat`（main 祖先；worktree 唯一脏项是与 main 已跟踪副本逐字相同的未提交归档目录，`--force` 删）、worktree `09-26-enforcement-cases`（分支 `fix/enforcement-backfill-gaps`，PR #98 已合并、树相同、干净）与分支 `task/09-26-enforcement-cases`（PR #87，树相同）、enf-0926 E1/E2/E3（PR #82/#86/#83 已合并、树相同、干净）与 `run/enf-0926/integration`（`tree_equal`、干净）——卡片/集成 worktree 按路径 (i) 手动删，`run cleanup enf-0926 --apply` 随后记为 `already_removed`。之后 `trellis_gc.py --apply`：`removed=0 archived=0 skipped=5 managed_by_dispatch=2`。**保留、等用户决定**：worktree `09-20-forward-incomplete-investigation`（分支是 main 祖先，但 worktree 里有 7 个从未提交的规划/研究文件，main 没有）；`card/sr-empty-days-20260920/A`（无 PR，`is_landed` conflict）；非计划分支 `card/sidebar-pill-revert/A`、`pr102`、`prototype/09-25-tracking-wall`（无 PR）、`chore/archive-enforcement-cases`（PR #88 已合并但树 ≠ squash）、`docs/enforcement-routine-no-skill`（PR #90 已合并、树相同、无 worktree）；已合并 PR 的远端分支（仓库未开 delete_branch_on_merge）；主检出未跟踪的 `scratchpad/handoff-herdr-dispatch-rework.md`。
+
 ## 4. 验证矩阵
 
 | 场景 | 必须观察到 |
