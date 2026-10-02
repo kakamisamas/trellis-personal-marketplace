@@ -297,3 +297,38 @@ herdr_dispatch.py run accept-card <run_id> <card> --review-override --evidence "
 | TRP-S01–S04 | 成立 | 建议 | 采纳 | §1、§3、§5 |
 
 11 条全部是计划内部矛盾或漏掉的代码调用方，不是罕见时序边界，所以没有接受风险或延后的。
+
+### C1 执行记录（`review-triage-C1-1003`，Codex gpt-6.1-sol high，2026-10-03）
+
+- round 1：技能仓分支 `review-triage`，基线 `24a8749`（777 测试），交付 `93b6b34`，4 个提交、11 个文件、+603/−21；全套 796 OK（主控重跑一致）。真机 `fix-budget --base cbbe648 --reviewed 509d170 --head 24a8749`：`original_added=5216`、`fix_added=4756`、`over_limit=true`。执行者在 `runcmd.py` 的 `ingest_card` 多放宽一处：卡处于 repairing、审核已接收且 must_fix 全部合规处置时允许 ingest，否则 §2.5 的同 HEAD 收口走不通；已列为代码审核重点。
+- round 2（返工）：交付 `983c9a5`，3 个提交；全套 802 OK（主控重跑一致）。修复预算 `fix-budget --base 24a8749 --reviewed 93b6b34`：`fix_added=136`、`allowed=180.9`、`over_limit=false`。没有新增状态字段、锁或守卫。
+
+### C1 代码审核（`review-triage-C1-review-1003`，Codex gpt-6-astra high，对象 `review-triage-C1`）
+
+审核判定 1/3：fail，3 条阻塞、2 条建议。
+
+| ID | 对错 | 档 | 决策表 | 处置 | 理由 |
+| --- | --- | --- | --- | --- | --- |
+| C1R-01 ledger 按 run 全局 ID 过滤，替代卡丢失带入的 finding | 成立，有复现 | A，违反 §2.2 回到设计第 3 步 | 3 | 采纳 | 只用同 `card_id` 的 ledger 条目判状态，一个条件 |
+| C1R-02 ledger 旧内容整条覆盖卡片新问题 | 成立，相对基线回归 | A | 3 | 采纳 | ledger 只判状态，内容取卡片 |
+| C1R-03 纯审核卡 pass 时无视 redesign | 成立，有复现 | A，redesign 卡被当成功依赖 | 3 | 采纳 | 两条接收路径补同一阻塞检查，不新增机制 |
+| C1R-S01 triaged_fail ingest 不查本卡其他阻塞项 | 成立 | B，后续 accept-card 会拦 | 6 | 采纳 | 一行检查，避免 redesign 代码先进集成分支 |
+| C1R-S02 复用已 fixed 的 ID 不自动重开 | 成立 | B，主控重新分诊可纠正 | 5 | 采纳为文档说明 | 不加脚本状态机 |
+
+审核判定 2/3：pass。三条阻塞在原复现场景上逐条 pass，无回归、无新 A 档、无新建议。
+
+收口：技能仓 main 在审核期间被 RS09 推进到 `7bfe99b`；`--no-ff` 合并为 `0ec3046`，合并结果全套 805 OK 后快进 main。worktree 与分支已删除。
+
+### C2 执行记录（`review-triage-C2-1003`，Codex gpt-6.1-sol high）
+
+交付 `0fe603a`：§2.6 四处与 README 一条逐字插入；pytest 164 passed、1 skipped；grep 计数 3/3/1。主控把主控验收段的分诊句从「accepts or rejects it」与「A rejection lists…」之间挪到返工路由段之后（`acd3470`），不拆开原有连贯的两句。
+
+### 对照
+
+| 指标 | 状态栏 B 轨道 | 本计划 C1 |
+| --- | --- | --- |
+| 审核判定次数 | 9 | 2 |
+| 修复累计 ÷ 原始新增 | 0.91 | 0.23 |
+| 新增机制 | terminal 守卫、epoch、sidecar、instance 等 | 无 |
+
+单个样本，不足以证明规则有效；§4 机制假说一行的观测继续累积。
