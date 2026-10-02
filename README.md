@@ -255,6 +255,27 @@ and logs. By default, the only worker that stays in a Herdr pane is a
 `claude`-harness worker. `assignee.session: headless | pane` in the task file
 overrides that default. Combining `claude` with `headless` is rejected.
 
+The controller status line in the Herdr sidebar comes from the herdr-dispatch
+skill (`scripts/trellis_status.py`). Install in four steps: `herdr plugin link
+~/.skills-manager/skills/herdr-dispatch`, `herdr plugin action invoke start
+--plugin herdr-dispatch.status`, add the block below to `config.toml`, then `herdr server reload-config`.
+
+```toml
+[ui.sidebar.agents.rows_by_agent]
+claude = [
+  ["state_icon", "agent", "state_text"],
+  [{ token = "$trellis_status", rules = [
+      { starts_with = "💬", fg = "#ff6188", bold = true },
+      { contains = "⚠", fg = "#f5c242" },
+      { starts_with = "⏳", dim = true },
+  ] }],
+  ["workspace", "tab"],
+]
+```
+
+Headless workers now stream (`grok --output-format streaming-json`), and
+`herdr_dispatch.py peek <id>` shows the last actions.
+
 ## Configure local OCR review
 
 Install OCR once per machine, then choose and test the user-level LLM provider:
