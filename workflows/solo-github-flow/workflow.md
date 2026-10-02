@@ -215,6 +215,7 @@ Multi-deliverable scope: consider a parent task plus independently verifiable ch
 Test CI planning gate: read existing GitHub workflow `run:` steps and confirm at least one check executes the project's real test command; a size/line-count gate is not enough, and a file named tests.yml is not enough. If missing, configure a test workflow in the task worktree from the project's actual test docs; copy `.trellis/templates/ci/tests-python.yml` only for matching Python/pytest projects, never blindly for unittest-only or non-Python stacks.
 Sub-agent mode: curate `implement.jsonl` and `check.jsonl` as spec/research manifests before start.
 Optional contract review: a herdr-dispatch `contract_review` card may audit the PRD/design/acceptance before `task.py start`. That review does not start implementation.
+The controller triages each contract-review finding (reject, adopt, accept risk, defer, or back to design, one-line reason each); a plan gets at most 3 review verdicts.
 [/workflow-state:planning]
 
 <!-- Per-turn breadcrumb: shown throughout Phase 1 when codex.dispatch_mode=inline.
@@ -234,6 +235,7 @@ Multi-deliverable scope: consider a parent task plus independently verifiable ch
 Test CI planning gate: read existing GitHub workflow `run:` steps and confirm at least one check executes the project's real test command; a size/line-count gate is not enough, and a file named tests.yml is not enough. If missing, configure a test workflow in the task worktree from the project's actual test docs; copy `.trellis/templates/ci/tests-python.yml` only for matching Python/pytest projects, never blindly for unittest-only or non-Python stacks.
 Inline mode: skip jsonl curation; Phase 2 reads artifacts/specs via `trellis-before-dev`.
 Optional contract review: a herdr-dispatch `contract_review` card may audit the PRD/design/acceptance before `task.py start`. That review does not start implementation.
+The controller triages each contract-review finding (reject, adopt, accept risk, defer, or back to design, one-line reason each); a plan gets at most 3 review verdicts.
 [/workflow-state:planning-inline]
 
 ### Phase 2: Execute
@@ -760,6 +762,8 @@ next handoff. The controller owns rework routing, and the executor window
 stays until the card is accepted; both rules are in
 `~/.skills-manager/skills/herdr-dispatch/SKILL.md`.
 
+Before dispatching rework, the controller triages every must_fix per herdr-dispatch references/repair-card.md: reject, adopt, accept risk, defer, or back to design. A reviewed object gets at most 3 review verdicts. Cumulative fix additions above the fix budget send the card back to design instead of another rework round.
+
 One worktree has one writer at a time. The check sub-agent runs inside the
 executor session and writes only in sequence with the executor, never in
 parallel with the executor or any other writer. Its prompt starts with
@@ -776,7 +780,7 @@ recorded as a new writable round and a new head. Independent review stays
 read-only. OCR stays once per pull request after the PR-bound full-scope
 check, not once per card and not once per card commit.
 
-Review scope: the main session supplies the declared scope and verified `base_sha` / `head_sha`. Inspect `git diff <base_sha> <head_sha> -- <scope>`. If only a target branch is available, derive the base with `git merge-base <base-branch> <head>` or use `git diff <base-branch>...<head> -- <scope>`; do not count target-branch-only changes as task changes. A task check also inspects in-scope staged and unstaged diffs plus the contents of untracked files (`git status --short --untracked-files=all`), unless explicitly limited to a fixed commit snapshot. Read-only review limits writes, not declared coverage. Report an unverifiable baseline; an empty working-tree diff does not prove there are no submitted changes.
+Review scope: the main session supplies the declared scope and verified `base_sha` / `head_sha`. Inspect `git diff <base_sha> <head_sha> -- <scope>`. If only a target branch is available, derive the base with `git merge-base <base-branch> <head>` or use `git diff <base-branch>...<head> -- <scope>`; do not count target-branch-only changes as task changes. A task check also inspects in-scope staged and unstaged diffs plus the contents of untracked files (`git status --short --untracked-files=all`), unless explicitly limited to a fixed commit snapshot. Read-only review limits writes, not declared coverage. Report an unverifiable baseline; an empty working-tree diff does not prove there are no submitted changes. A re-review fails only on undisposed earlier blocking IDs, regressions (including a fix path that violates the declared contract), or A-class problems; other new edges are suggestions.
 
 [Claude Code, Cursor, OpenCode, codex-sub-agent, Kiro, Gemini, Qoder, CodeBuddy, Copilot, Droid, Pi, Oh My Pi, ZCode, Snow, Reasonix, Trae, Grok, Kimi Code]
 
