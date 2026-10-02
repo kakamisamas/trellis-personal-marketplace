@@ -1,4 +1,4 @@
-<!-- trellis-personal-marketplace solo-github-flow v1.6.0 -->
+<!-- trellis-personal-marketplace solo-github-flow v1.6.1 -->
 
 # Development Workflow
 
@@ -405,7 +405,7 @@ is used and a helper is missing, stop with a version/missing-asset report;
 do not proceed with missing Python files:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.6.0/scripts/setup.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.6.1/scripts/setup.sh)
 ```
 
 Retry of a known task must re-verify the worktree path, branch, and base, then
@@ -581,13 +581,16 @@ Skip this step. Context is loaded directly by the `trellis-before-dev` skill in 
 
 #### 1.4 Activate task `[required · once]`
 
-After artifact review, run `task.py start` from the coordinating base worktree
-with the absolute task path. This writes the base session's pointer to the
-external task and flips its status to `in_progress` without switching the base
-branch:
+After artifact review, run `task.py start` inside the task worktree with the
+task name. Trellis refuses a task path outside the current worktree's own
+`.trellis/tasks`, so the coordinating base worktree never runs `start`; it keeps
+the absolute task and worktree paths captured in Phase 1.0 and stays on the
+base branch. `start` flips the task status to `in_progress` and fires the
+`after_start` hooks (turn guard `mark-start` reads `TASK_JSON_PATH` from the
+hook environment):
 
 ```bash
-python3 ./.trellis/scripts/task.py start <absolute-task-path>
+cd <absolute-worktree-path> && python3 ./.trellis/scripts/task.py start <task-name>
 ```
 
 For lightweight tasks, `prd.md` can be enough. For complex tasks, `prd.md`, `design.md`, and `implement.md` must exist and be reviewed before start. On sub-agent-dispatch platforms, `implement.jsonl` and `check.jsonl` must both have real curated entries before start. Runtime consumers tolerate missing or seed-only manifests for compatibility, but that tolerance is not a planning-ready state.
@@ -913,9 +916,9 @@ After that authorization:
 5. run the unchanged platform `trellis-finish-work` entry inside the task
    worktree so task archival and journal bookkeeping are committed after the
    work commits on the same branch;
-6. clear the coordinating base worktree's now-stale external task pointer with
-   `python3 ./.trellis/scripts/task.py finish` while retaining the captured
-   absolute paths in the session;
+6. if the coordinating base worktree's `task.py current` still points at this
+   task, clear that stale pointer with `python3 ./.trellis/scripts/task.py finish`
+   there while retaining the captured absolute paths in the session;
 7. require a clean task branch before continuing.
 
 Do not ask again before staging, committing, or invoking native finish-work.
@@ -974,8 +977,10 @@ base worktree; lifecycle hook failures are non-blocking.
    bypassing branch protection or review policy;
 7. verify the coordinating worktree is still on the actual base branch and
    fast-forward it from its upstream;
-8. verify the PR is merged and the remote task branch is absent, then require
-   the task worktree to be clean;
+8. verify the PR is merged and the remote task branch is absent; if the task
+   worktree still exists, require it to be clean (recent `gh` versions remove
+   a sibling linked worktree together with the local branch during
+   `--delete-branch`, so an already-missing worktree is expected, not an error);
 9. after the merge has deleted the remote branch, run `turn_guard.py mark-merged`
    first. It verifies the same release conditions the guard uses for itself:
    phase is archived, the branch tip (or `last_seen_head` when the branch is
