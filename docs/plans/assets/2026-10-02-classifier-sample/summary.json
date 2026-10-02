@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-02",
+  "samples": {
+    "cal": 40,
+    "hold": 20,
+    "asking_cal": 20,
+    "asking_hold": 10,
+    "optional_asking": 9
+  },
+  "http": {
+    "non_200": 0,
+    "ms_median": 3357,
+    "ms_max": 9105
+  },
+  "needs_user_threshold_sweep_cal": {
+    "0.6": "P0.77 R1.00",
+    "0.7": "P0.83 R0.95",
+    "0.8": "P1.00 R0.95",
+    "0.9": "P1.00 R0.85"
+  },
+  "rules": {
+    "needs_user>=0.8": {
+      "cal": "P1.00 R0.95",
+      "hold": "P1.00 R0.80"
+    },
+    "needs_user>=0.6": {
+      "cal": "P0.77 R1.00",
+      "hold": "P0.90 R0.90"
+    },
+    "needs_user>=0.8 or kind==问你拍板": {
+      "cal": "P1.00 R1.00",
+      "hold": "P1.00 R0.90"
+    },
+    "heuristic §2.4 (last line ？/keywords)": {
+      "cal": "P0.00 R0.00",
+      "hold": "P0.00 R0.00"
+    },
+    "heuristic last 5 lines": {
+      "cal": "P0.86 R0.30",
+      "hold": "P0.80 R0.40"
+    }
+  },
+  "chosen": {
+    "asking": "needs_user>=0.8 or kind==问你拍板",
+    "optional_prefix": "blocking<0.45",
+    "blocking_rule_eval": {
+      "must_answer_kept_blocking": "18/21",
+      "optional_marked_optional": "8/9"
+    }
+  },
+  "kind_agreement_with_labels": "39/60",
+  "misses_at_chosen_rule": [
+    "eaaf4c007c (hold, English optional offer 'I can also read the live data again for you', needs_user 0.61, kind 汇报完成)"
+  ],
+  "gate": "hold P=1.00 R=0.90 >= 0.9 both -> provider=jev"
+}
