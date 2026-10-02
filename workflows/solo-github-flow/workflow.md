@@ -749,9 +749,6 @@ That check covers the card's `base..HEAD` and in-scope uncommitted content.
 The executor fixes every finding and commits those fixes on the card before
 the handoff. The handoff includes the check record.
 The controller then verifies the handoff against every acceptance item of the card and accepts or rejects it.
-
-Before dispatching rework, the controller triages every must_fix per herdr-dispatch references/repair-card.md: reject, adopt, accept risk, defer, or back to design. A reviewed object gets at most 3 review verdicts. Cumulative fix additions above the fix budget send the card back to design instead of another rework round.
-
 A rejection lists every failed item at once; items that could not be verified because the work does not run are named with the reason.
 It does not dispatch `trellis-implement` again, and it does not dispatch
 another `trellis-check` while that executor session still exists.
@@ -764,6 +761,8 @@ rework, that same session again dispatches one `trellis-check` before the
 next handoff. The controller owns rework routing, and the executor window
 stays until the card is accepted; both rules are in
 `~/.skills-manager/skills/herdr-dispatch/SKILL.md`.
+
+Before dispatching rework, the controller triages every must_fix per herdr-dispatch references/repair-card.md: reject, adopt, accept risk, defer, or back to design. A reviewed object gets at most 3 review verdicts. Cumulative fix additions above the fix budget send the card back to design instead of another rework round.
 
 One worktree has one writer at a time. The check sub-agent runs inside the
 executor session and writes only in sequence with the executor, never in
