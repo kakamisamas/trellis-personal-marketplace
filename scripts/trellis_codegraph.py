@@ -29,6 +29,8 @@ from typing import Any, Mapping, Sequence
 
 
 IGNORE_RULE = "/.codegraph/"
+# Spellings that already ignore a top-level .codegraph/ directory.
+IGNORE_RULE_FORMS = {IGNORE_RULE, ".codegraph/", "/.codegraph", ".codegraph"}
 PINNED_CLI = "@colbymchenry/codegraph@1.6.0"
 
 
@@ -274,8 +276,8 @@ def ensure_task_ignore(worktree: Path) -> None:
         )
     gitignore = worktree / ".gitignore"
     existing = gitignore.read_text(encoding="utf-8") if gitignore.is_file() else ""
-    lines = existing.splitlines()
-    if IGNORE_RULE in lines:
+    lines = {line.strip() for line in existing.splitlines()}
+    if lines & IGNORE_RULE_FORMS:
         return
     prefix = "" if not existing or existing.endswith("\n") else "\n"
     gitignore.write_text(existing + prefix + IGNORE_RULE + "\n", encoding="utf-8")

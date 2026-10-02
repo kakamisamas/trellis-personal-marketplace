@@ -418,6 +418,24 @@ class CodegraphHelperTests(unittest.TestCase):
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual((task / ".gitignore").read_text(encoding="utf-8").count("/.codegraph/"), 1)
 
+    def test_existing_unanchored_ignore_rule_is_not_duplicated(self) -> None:
+        base = self.make_git_dir("base")
+        task = self.make_git_dir("task")
+        self.enable(base)
+        original = "*.pyc\n.codegraph/\n/items/\n"
+        (task / ".gitignore").write_text(original, encoding="utf-8")
+        env = self.isolated_env(base)
+        result = self.run_helper(
+            env,
+            "prepare",
+            "--base-worktree",
+            str(base),
+            "--worktree",
+            str(task),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((task / ".gitignore").read_text(encoding="utf-8"), original)
+
     def test_tracked_codegraph_is_rejected_without_deleting_files(self) -> None:
         base = self.make_git_dir("base")
         task = self.make_git_dir("task")
