@@ -1,0 +1,67 @@
+{
+  "schema_version": "1",
+  "seconds": 600.0,
+  "interval": 10.0,
+  "elapsed_s": 600.08368362498,
+  "window_s": 600.08368362498,
+  "sample_count": 61,
+  "processes": [
+    {
+      "pid": 75845,
+      "pgid": 75844,
+      "role": "watcher",
+      "command": "/opt/homebrew/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python /Users/davidl/.skills-manager/skills-wt/status-bar/herdr-dispatch/scripts/herdr_dispatch.py --state-home /private/tmp/claude-501/-Users-davidl-Documents-Project-trellis-personal-marketplace/6c327952-c9d4-42db-ba57-f6c862d24e5a/scratchpad/perf-home watch perf-A-1002 --detach",
+      "cputime_delta_s": 1.88,
+      "window_s": 600.08368362498,
+      "cputime_per_s": 0.0031328963797904205,
+      "rss_peak_bytes": 16531456,
+      "subprocess_count_peak": 0
+    },
+    {
+      "pid": 75850,
+      "pgid": 75850,
+      "role": "wrapper",
+      "command": "/opt/homebrew/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python /Users/davidl/.skills-manager/skills-wt/status-bar/herdr-dispatch/scripts/headless.py run /private/tmp/claude-501/-Users-davidl-Documents-Project-trellis-personal-marketplace/6c327952-c9d4-42db-ba57-f6c862d24e5a/scratchpad/perf-home/perf-A-1002/rounds/1",
+      "cputime_delta_s": 0.0,
+      "window_s": 600.08368362498,
+      "cputime_per_s": 0.0,
+      "rss_peak_bytes": 26099712,
+      "subprocess_count_peak": 1
+    },
+    {
+      "pid": 75893,
+      "pgid": 75892,
+      "role": "watcher",
+      "command": "/opt/homebrew/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python /Users/davidl/.skills-manager/skills-wt/status-bar/herdr-dispatch/scripts/herdr_dispatch.py --state-home /private/tmp/claude-501/-Users-davidl-Documents-Project-trellis-personal-marketplace/6c327952-c9d4-42db-ba57-f6c862d24e5a/scratchpad/perf-home watch perf-B-1002 --detach",
+      "cputime_delta_s": 1.81,
+      "window_s": 600.08368362498,
+      "cputime_per_s": 0.0030162459826705646,
+      "rss_peak_bytes": 16695296,
+      "subprocess_count_peak": 1
+    },
+    {
+      "pid": 75896,
+      "pgid": 75896,
+      "role": "wrapper",
+      "command": "/opt/homebrew/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python /Users/davidl/.skills-manager/skills-wt/status-bar/herdr-dispatch/scripts/headless.py run /private/tmp/claude-501/-Users-davidl-Documents-Project-trellis-personal-marketplace/6c327952-c9d4-42db-ba57-f6c862d24e5a/scratchpad/perf-home/perf-B-1002/rounds/1",
+      "cputime_delta_s": 0.0,
+      "window_s": 600.08368362498,
+      "cputime_per_s": 0.0,
+      "rss_peak_bytes": 26214400,
+      "subprocess_count_peak": 1
+    },
+    {
+      "pid": 75905,
+      "pgid": 75905,
+      "role": "renderer",
+      "command": "/opt/homebrew/Cellar/python@3.12/3.12.14/Frameworks/Python.framework/Versions/3.12/Resources/Python.app/Contents/MacOS/Python /Users/davidl/.skills-manager/skills-wt/status-bar/herdr-dispatch/scripts/trellis_status.py daemon",
+      "cputime_delta_s": 0.24000000000000002,
+      "window_s": 600.08368362498,
+      "cputime_per_s": 0.00039994421869664944,
+      "rss_peak_bytes": 27164672,
+      "subprocess_count_peak": 0
+    }
+  ],
+  "herdr_subprocess_count": 0,
+  "ps_subprocess_count": 0
+}
