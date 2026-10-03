@@ -1,4 +1,4 @@
-<!-- trellis-personal-marketplace solo-github-flow v1.6.1 -->
+<!-- trellis-personal-marketplace solo-github-flow v1.7.0 -->
 
 # Development Workflow
 
@@ -405,7 +405,7 @@ is used and a helper is missing, stop with a version/missing-asset report;
 do not proceed with missing Python files:
 
 ```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.6.1/scripts/setup.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/v1.7.0/scripts/setup.sh)
 ```
 
 Retry of a known task must re-verify the worktree path, branch, and base, then
