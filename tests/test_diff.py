@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import os
-import shutil
-import stat
 import subprocess
 import tempfile
 import unittest
@@ -12,7 +10,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "scripts" / "trellis_diff.py"
-CODEGRAPH = ROOT / "scripts" / "trellis_codegraph.py"
 
 
 class DiffHelperTests(unittest.TestCase):
@@ -125,56 +122,17 @@ class DiffHelperTests(unittest.TestCase):
         self.assertEqual(self.count(local), 1 + 2 + 1 + 3)
         self.assertEqual(self.count(ci), 3)
 
-    def test_local_matches_ci_after_commit_and_ignores_codegraph(self) -> None:
+    def test_local_matches_ci_after_commit(self) -> None:
         root = self.make_repo()
         base = self.sha(root)
         (root / "source.txt").write_text("line\n" * 4, encoding="utf-8")
-        (root / ".codegraph").mkdir()
-        (root / ".codegraph" / "codegraph.db").write_bytes(b"x" * 8000)
-        self.assertTrue(CODEGRAPH.is_file())
-        isolated = Path(self.addCleanupContext(tempfile.TemporaryDirectory(prefix="diff-bin-")))
-        for command in ("git", "python3"):
-            (isolated / command).symlink_to(shutil.which(command))
-        stub = isolated / "codegraph"
-        stub.write_text(
-            "#!/usr/bin/env python3\nimport json,sys\nfrom pathlib import Path\n"
-            "args=sys.argv[1:]\n"
-            "path=Path([a for a in args if not a.startswith('-')][-1]).resolve()\n"
-            "if args[0]=='status':\n"
-            "  print(json.dumps({'initialized':True,'version':'1.6.0',"
-            "'projectPath':str(path),'indexPath':str(path/'.codegraph'),"
-            "'pendingChanges':{'added':0,'modified':0,'removed':0},"
-            "'worktreeMismatch':None,'index':{'state':'complete',"
-            "'reindexRecommended':False,'pendingRefs':0}}))\n",
-            encoding="utf-8",
-        )
-        stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
-        env = dict(os.environ, PATH=str(isolated))
-        prepared = subprocess.run(
-            [
-                "python3",
-                str(CODEGRAPH),
-                "prepare",
-                "--base-worktree",
-                str(root),
-                "--worktree",
-                str(root),
-            ],
-            cwd=root,
-            env=env,
-            text=True,
-            capture_output=True,
-        )
-        self.assertEqual(prepared.returncode, 0, prepared.stderr)
-        self.git(root, "add", "source.txt", ".gitignore")
-        self.git(root, "commit", "-q", "-m", "with ignore")
+        self.git(root, "add", "source.txt")
+        self.git(root, "commit", "-q", "-m", "source")
         head = self.sha(root)
         local = self.run_helper(root, "--base", base)
         ci = self.run_helper(root, "--base", base, "--head", head)
         self.assertEqual(self.count(local), self.count(ci))
-        self.assertEqual(self.count(local), 4 + 1)  # source.txt + /.codegraph/ ignore line
-        check = self.git(root, "check-ignore", "-q", ".codegraph/codegraph.db", check=False)
-        self.assertEqual(check.returncode, 0)
+        self.assertEqual(self.count(local), 4)
 
     def test_special_paths_rename_binary_and_missing_newline(self) -> None:
         root = self.make_repo()

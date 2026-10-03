@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-readonly RELEASE_REF="v1.6.1"
+readonly RELEASE_REF="v1.7.0"
 readonly RAW_BASE="https://raw.githubusercontent.com/kakamisamas/trellis-personal-marketplace/${RELEASE_REF}"
 readonly LOCAL_ASSET_ROOT="${TRELLIS_SETUP_ASSET_ROOT:-}"
 
@@ -61,7 +61,6 @@ fetch_asset() {
 
 assets=(
   scripts/trellis_gc.py
-  scripts/trellis_codegraph.py
   scripts/trellis_diff.py
   assets/ci/pr-gate.yml
   assets/ci/tests-python.yml
@@ -128,7 +127,6 @@ install_conservative() {
 }
 
 install_replaceable "${temporary}/scripts/trellis_gc.py" "${repo_root}/scripts/trellis_gc.py"
-install_replaceable "${temporary}/scripts/trellis_codegraph.py" "${repo_root}/scripts/trellis_codegraph.py"
 install_replaceable "${temporary}/scripts/trellis_diff.py" "${repo_root}/scripts/trellis_diff.py"
 install_conservative "${temporary}/assets/ci/pr-gate.yml" "${repo_root}/.github/workflows/pr-gate.yml"
 install_conservative "${temporary}/assets/ci/tests-python.yml" "${repo_root}/.trellis/templates/ci/tests-python.yml"
@@ -155,7 +153,7 @@ for skill_root in "${skill_roots[@]}"; do
   install_conservative "$skill_source" "${skill_root}/trellis-setup/SKILL.md"
 done
 
-printf '[REPORT] GC, CodeGraph, and diff helpers, PR gate, test CI template, setup skill, and OCR CLI readiness checked for %s\n' "$repo_root"
+printf '[REPORT] GC and diff helpers, PR gate, test CI template, setup skill, and OCR CLI readiness checked for %s\n' "$repo_root"
 printf '[MANUAL] Enable automatic head-branch deletion and require the size-gate check in repository settings.\n'
 printf '[MANUAL] If the project has no workflow that runs its test suite, copy and adapt .trellis/templates/ci/tests-python.yml only for matching Python/pytest projects; do not install it blindly for unittest-only or non-Python stacks. Exit code 2 means an existing PR gate, test CI template, or setup skill differs and needs a manual diff (non-blocking partial success).\n'
 printf '[MANUAL] After changing trellis_diff.py, update the distributed PR gate in the same release; v1.4.0 is the minimum installer that ships the new helpers. Install the workflow and tooling from the same release.\n'

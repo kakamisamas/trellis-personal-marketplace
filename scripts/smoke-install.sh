@@ -89,27 +89,17 @@ git -C "$temporary" worktree add "$worktree_path" -b "$task_branch" main >/dev/n
   TRELLIS_SETUP_ASSET_ROOT="$ROOT" "$ROOT/scripts/setup.sh"
 )
 cmp "$ROOT/scripts/trellis_gc.py" "$worktree_path/scripts/trellis_gc.py"
-cmp "$ROOT/scripts/trellis_codegraph.py" "$worktree_path/scripts/trellis_codegraph.py"
 cmp "$ROOT/scripts/trellis_diff.py" "$worktree_path/scripts/trellis_diff.py"
 cmp "$ROOT/assets/ci/pr-gate.yml" "$worktree_path/.github/workflows/pr-gate.yml"
 cmp "$ROOT/assets/ci/tests-python.yml" "$worktree_path/.trellis/templates/ci/tests-python.yml"
 [[ -x "$worktree_path/scripts/trellis_gc.py" ]]
-[[ -x "$worktree_path/scripts/trellis_codegraph.py" ]]
 [[ -x "$worktree_path/scripts/trellis_diff.py" ]]
 [[ -z "$(git -C "$temporary" status --porcelain --untracked-files=all)" ]]
 [[ ! -e "$temporary/scripts/trellis_gc.py" ]]
-[[ ! -e "$temporary/scripts/trellis_codegraph.py" ]]
 [[ ! -e "$temporary/scripts/trellis_diff.py" ]]
 
-(
-  cd "$worktree_path"
-  python3 scripts/trellis_codegraph.py prepare \
-    --base-worktree "$temporary" \
-    --worktree "$worktree_path"
-)
 installed_assets=(
   scripts/trellis_gc.py
-  scripts/trellis_codegraph.py
   scripts/trellis_diff.py
   .github/workflows/pr-gate.yml
   .trellis/templates/ci/tests-python.yml

@@ -125,11 +125,7 @@ class MarketplaceContractTests(unittest.TestCase):
             "Active task: <absolute task path>",
             "Workdir: <absolute task worktree path>",
             "only inside `Workdir`",
-            "python3 scripts/trellis_codegraph.py prepare",
-            "--base-worktree",
             "python3 scripts/trellis_diff.py --base",
-            "projectPath",
-            "Do not copy or symlink `.codegraph/`",
             "lifecycle hook failures are non-blocking",
         )
         for phrase in required:
@@ -140,11 +136,8 @@ class MarketplaceContractTests(unittest.TestCase):
         phase_two = self.workflow.index("#### 2.1 Implement")
         phase_three = self.workflow.index("#### 3.5 Wrap-up reminder")
         worktree_add = self.workflow.index("git worktree add", phase_one, phase_two)
-        setup = self.workflow.index("v1.6.1/scripts/setup.sh", worktree_add, phase_two)
-        codegraph_prepare = self.workflow.index(
-            "trellis_codegraph.py prepare", setup, phase_two
-        )
-        task_create = self.workflow.index("task.py create", codegraph_prepare, phase_two)
+        setup = self.workflow.index("v1.7.0/scripts/setup.sh", worktree_add, phase_two)
+        task_create = self.workflow.index("task.py create", setup, phase_two)
         merge = self.workflow.index("gh pr merge", phase_three)
         worktree_remove = self.workflow.index("git worktree remove", merge)
 
@@ -153,13 +146,12 @@ class MarketplaceContractTests(unittest.TestCase):
             worktree_add,
         )
         self.assertLess(worktree_add, setup)
-        self.assertLess(setup, codegraph_prepare)
-        self.assertLess(codegraph_prepare, task_create)
+        self.assertLess(setup, task_create)
         self.assertLess(merge, worktree_remove)
 
     def test_gc_baseline_and_breadcrumb_contracts_are_explicit(self) -> None:
         required = (
-            "trellis-personal-marketplace/v1.6.1/scripts/setup.sh",
+            "trellis-personal-marketplace/v1.7.0/scripts/setup.sh",
             "python3 scripts/trellis_gc.py --apply",
             ".trellis/spec/guides/architecture-baseline.md",
             "Decision Log",
@@ -183,8 +175,12 @@ class MarketplaceContractTests(unittest.TestCase):
             block = self.workflow[start:end]
             self.assertIn("Decision Log", block)
             self.assertIn("trellis_gc.py --apply", block)
-            self.assertIn("trellis_codegraph.py sync", block)
-            self.assertIn("When CodeGraph was skipped, do not force the CLI", block)
+        in_progress_start = self.workflow.index("[workflow-state:in_progress]")
+        in_progress_end = self.workflow.index("[/workflow-state:in_progress]", in_progress_start)
+        self.assertIn(
+            "python3 scripts/trellis_diff.py --base",
+            self.workflow[in_progress_start:in_progress_end],
+        )
         no_task_start = self.workflow.index("[workflow-state:no_task]")
         no_task_end = self.workflow.index("[/workflow-state:no_task]", no_task_start)
         no_task = self.workflow[no_task_start:no_task_end]
@@ -268,7 +264,7 @@ class MarketplaceContractTests(unittest.TestCase):
             "downloads only `workflow.md`",
             "does not copy companion scripts or `.trellis/config.yaml`",
             "Do not attach raw",
-            "v1.6.1/scripts/setup.sh",
+            "v1.7.0/scripts/setup.sh",
             "trellis-spec-marketplace#v1.0.0",
             "no `--force` mode",
             "hook CWD",
@@ -298,7 +294,7 @@ class MarketplaceContractTests(unittest.TestCase):
     def test_release_assets_and_license_are_present(self) -> None:
         self.assertTrue(SETUP.is_file())
         self.assertTrue(GC.is_file())
-        self.assertIn('RELEASE_REF="v1.6.1"', SETUP.read_text(encoding="utf-8"))
+        self.assertIn('RELEASE_REF="v1.7.0"', SETUP.read_text(encoding="utf-8"))
         self.assertIn("MIT License", LICENSE.read_text(encoding="utf-8"))
 
     def test_release_references_stay_aligned(self) -> None:
@@ -331,7 +327,6 @@ class MarketplaceContractTests(unittest.TestCase):
             ROOT / "README.md",
             SETUP,
             GC,
-            ROOT / "scripts" / "trellis_codegraph.py",
             ROOT / "scripts" / "trellis_diff.py",
         ]
         content = "\n".join(path.read_text(encoding="utf-8") for path in files)
@@ -355,7 +350,6 @@ class MarketplaceContractTests(unittest.TestCase):
         skill = SETUP_SKILL.read_text(encoding="utf-8")
         helpers = (
             "scripts/trellis_gc.py",
-            "scripts/trellis_codegraph.py",
             "scripts/trellis_diff.py",
         )
         for helper in helpers:
@@ -370,7 +364,7 @@ class MarketplaceContractTests(unittest.TestCase):
         self.assertIn("python3 scripts/trellis_diff.py --base", (ROOT / "assets" / "ci" / "pr-gate.yml").read_text(encoding="utf-8"))
         match = re.search(r'^readonly RELEASE_REF="([^"]+)"$', setup, re.MULTILINE)
         self.assertIsNotNone(match)
-        self.assertEqual(match.group(1), "v1.6.1")
+        self.assertEqual(match.group(1), "v1.7.0")
 
     def test_workflow_header_release_ref_and_skill_bootstrap_match(self) -> None:
         header = re.search(
