@@ -87,7 +87,6 @@ class SetupTests(unittest.TestCase):
         self.assertFalse((root / "scripts" / "trellis_gc.py").exists())
         for label in (
             "trellis_gc.py",
-            "trellis_codegraph.py",
             "trellis_diff.py",
             "pr-gate.yml",
             "tests-python.yml",
@@ -101,9 +100,7 @@ class SetupTests(unittest.TestCase):
         first = self.run_setup(root)
         self.assertEqual(first.returncode, 0, first.stderr)
         self.assertTrue((root / "scripts" / "trellis_gc.py").is_file())
-        self.assertTrue((root / "scripts" / "trellis_codegraph.py").is_file())
         self.assertTrue((root / "scripts" / "trellis_diff.py").is_file())
-        self.assertTrue(os.access(root / "scripts" / "trellis_codegraph.py", os.X_OK))
         self.assertTrue(os.access(root / "scripts" / "trellis_diff.py", os.X_OK))
         self.assertTrue((root / ".github" / "workflows" / "pr-gate.yml").is_file())
         self.assertTrue((root / ".trellis" / "templates" / "ci" / "tests-python.yml").is_file())
@@ -162,7 +159,6 @@ class SetupTests(unittest.TestCase):
         skill.write_text((ROOT / "assets" / "skills" / "trellis-setup" / "SKILL.md").read_text(encoding="utf-8"), encoding="utf-8")
         result = self.run_setup(root)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((root / "scripts" / "trellis_codegraph.py").is_file())
         self.assertTrue((root / "scripts" / "trellis_diff.py").is_file())
         self.assertTrue((root / ".trellis" / "templates" / "ci" / "tests-python.yml").is_file())
         self.assertNotEqual((scripts / "trellis_gc.py").read_text(encoding="utf-8"), "#!/usr/bin/env python3\nprint('old')\n")
@@ -200,7 +196,6 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(status.stdout.strip(), "")
         self.assertFalse((base / "scripts" / "trellis_gc.py").exists())
         self.assertTrue((worktree / "scripts" / "trellis_gc.py").is_file())
-        self.assertTrue((worktree / "scripts" / "trellis_codegraph.py").is_file())
         self.assertTrue((worktree / "scripts" / "trellis_diff.py").is_file())
         self.assertTrue((worktree / ".trellis" / "templates" / "ci" / "tests-python.yml").is_file())
 
@@ -210,7 +205,6 @@ class SetupTests(unittest.TestCase):
         skill = (ROOT / "assets" / "skills" / "trellis-setup" / "SKILL.md").read_text(encoding="utf-8")
         targets = (
             "scripts/trellis_gc.py",
-            "scripts/trellis_codegraph.py",
             "scripts/trellis_diff.py",
             ".github/workflows/pr-gate.yml",
             ".trellis/templates/ci/tests-python.yml",

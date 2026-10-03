@@ -47,11 +47,6 @@ authoritative.
 - A multi-card run places each card worktree at
   `<repo>-wt/<run_id>/<run_id>-<card>` and the integration worktree at
   `<repo>-wt/<run_id>/<run_id>-integration`.
-- If the coordinating worktree already has a `.codegraph/` index, Phase 1.0
-  prepares an independent CodeGraph index in the task worktree with
-  `scripts/trellis_codegraph.py` before task creation. It never copies or
-  symlinks the base index. MCP queries must pass `projectPath` set to the task
-  worktree absolute path.
 - Implement/check dispatch prompts begin with absolute `Active task:` and
   `Workdir:` lines. Agents may operate only inside that worktree.
 - Phase 3.5 removes the worktree and local task branch only after the squash
@@ -73,9 +68,6 @@ only after the squash merge and remote-branch deletion are verified.
 - a GitHub repository whose pull requests publish at least one check result
   that actually runs the project's test suite; a size/line-count gate alone is
   not enough
-- optional CodeGraph CLI (`@colbymchenry/codegraph@1.6.0` is the version these
-  helpers verify); it becomes required for task worktree creation when the
-  coordinating worktree already contains `.codegraph/`
 - optional Open Code Review 1.9.4 or later (`ocr`) plus Git 2.41 or later for
   local AI review; missing or unconfigured OCR is recorded but does not block
   the workflow
@@ -130,8 +122,8 @@ workflow is intentional.
 
 From the **task worktree** on first adoption (or any caller-specified repository
 when running setup by hand), preview and then apply the release-pinned
-installer. `v1.4.0` is the minimum release that ships `trellis_codegraph.py` and
-`trellis_diff.py`. Install the workflow and tooling from the same release.
+installer. `v1.4.0` is the minimum release that ships `trellis_diff.py`.
+Install the workflow and tooling from the same release.
 Existing projects must run the installer to adopt these helpers; publishing a
 marketplace release does not upgrade downstream projects automatically.
 
@@ -142,9 +134,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/kakamisamas/trellis-personal
 
 The installer manages these targets:
 
-- `scripts/trellis_gc.py`, `scripts/trellis_codegraph.py`, and
-  `scripts/trellis_diff.py` are installed or updated atomically; a changed copy
-  is backed up first with a UTC timestamp;
+- `scripts/trellis_gc.py` and `scripts/trellis_diff.py` are installed or
+  updated atomically; a changed copy is backed up first with a UTC timestamp;
 - `.github/workflows/pr-gate.yml` is installed only when absent;
 - `.trellis/templates/ci/tests-python.yml` is installed only when absent (a
   template, not a live workflow);
